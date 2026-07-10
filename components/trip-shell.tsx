@@ -20,6 +20,12 @@ type TodoFormState = {
   due_date: string;
   emphasized: boolean;
 };
+type ExpenseFormState = {
+  title: string;
+  amount: string;
+  payer_id: string;
+  category: string;
+};
 
 const pages: { id: PageId; label: string; short: string; lead: string }[] = [
   { id: "dashboard", label: "今回の旅", short: "今回", lead: "旅行中の予定、やること、写真、メモへすぐ動ける画面です。" },
@@ -82,6 +88,7 @@ export function TripShell({ initialSnapshot, inviteCode = null }: { initialSnaps
   const [toast, setToast] = useState("");
   const [planForm, setPlanForm] = useState<PlanFormState | null>(null);
   const [todoForm, setTodoForm] = useState<TodoFormState | null>(null);
+  const [expenseForm, setExpenseForm] = useState<ExpenseFormState | null>(null);
   const selectedTrip = tripChoices.find((trip) => trip.id === selectedTripId) || tripChoices[0];
   const page = pages.find((item) => item.id === activePage) || pages[0];
   const canEdit = initialSnapshot.trip.status !== "archived";
@@ -311,24 +318,47 @@ export function TripShell({ initialSnapshot, inviteCode = null }: { initialSnaps
     await postJson("/api/todos", { ...todo, action: "delete" });
   }
 
-  async function addExpense() {
+  function openExpenseForm() {
     if (!requireEditable()) return;
-    const title = window.prompt("支払い名", "夕食");
-    if (!title) return;
-    const amount = Number(window.prompt("金額", "3000") || "0");
+    setExpenseForm({
+      title: "",
+      amount: "",
+      payer_id: currentUserId || members[0]?.user_id || "",
+      category: "other"
+    });
+  }
+
+  function updateExpenseForm(patch: Partial<ExpenseFormState>) {
+    setExpenseForm((form) => form ? { ...form, ...patch } : form);
+  }
+
+  async function submitExpense(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!requireEditable() || !expenseForm) return;
+    const title = expenseForm.title.trim();
+    const amount = Number(expenseForm.amount);
+    if (!title) {
+      showToast("支払い名を入力してください");
+      return;
+    }
+    if (!Number.isFinite(amount) || amount <= 0) {
+      showToast("金額を入力してください");
+      return;
+    }
     const participants = members.map((member) => member.user_id);
     const draft: Expense = {
       id: "local-expense-" + Date.now(),
       trip_id: initialSnapshot.trip.id,
       title,
-      amount: Number.isFinite(amount) ? amount : 0,
-      payer_id: currentUserId || members[0]?.user_id || "",
+      amount,
+      payer_id: expenseForm.payer_id || members[0]?.user_id || "",
       participant_ids: participants,
-      category: "other",
+      category: expenseForm.category || "other",
       created_at: new Date().toISOString()
     };
     const saved = await postJson<Expense>("/api/expenses", draft);
     setExpenses((items) => [saved ?? draft, ...items]);
+    setExpenseForm(null);
     showToast("支払いを追加しました");
   }
 
@@ -433,7 +463,7 @@ export function TripShell({ initialSnapshot, inviteCode = null }: { initialSnaps
         {activePage === "dashboard" ? <Dashboard snapshot={snapshot} nextItem={nextItem} upcomingItems={upcomingItems} wishlist={wishlist} expenses={expenses} onAddNow={() => openPlanForm(true)} onAddPlan={() => openPlanForm(false)} onAddWish={addWish} onMoveWish={moveWishToPlan} onToggleWish={toggleWish} onDeleteWish={deleteWish} onMoney={() => switchPage("money")} onAlbum={() => switchPage("album")} onMemo={() => showToast("メモ機能は次に本物化します")} onWeather={() => window.open("https://www.google.com/search?q=" + encodeURIComponent((nextItem?.location_name || selectedTrip.destination) + " 天気"), "_blank")} onSettings={() => switchPage("settings")} /> : null}
         {activePage === "prep" ? <PreparationPage snapshot={snapshot} packing={packing} todos={todos} currentUserId={currentUserId} onAddPacking={() => addPackingItem()} onTemplate={applyPackingTemplate} onTogglePacking={togglePacking} onDeletePacking={deletePacking} onAddTodo={openTodoForm} onToggleTodo={toggleTodo} onDeleteTodo={deleteTodo} /> : null}
         {activePage === "itinerary" ? <ItineraryPage snapshot={snapshot} itinerary={itinerary} onAdd={() => openPlanForm(false)} onAddNow={() => openPlanForm(true)} onDelete={deletePlan} /> : null}
-        {activePage === "money" ? <MoneyPage snapshot={snapshot} expenses={expenses} currentUserId={currentUserId} onAdd={addExpense} /> : null}
+        {activePage === "money" ? <MoneyPage snapshot={snapshot} expenses={expenses} currentUserId={currentUserId} onAdd={openExpenseForm} /> : null}
         {activePage === "album" ? <AlbumPage snapshot={snapshot} photos={photos} itinerary={itinerary} currentUserId={currentUserId} onPost={addPhoto} onUpdatePhoto={updatePhoto} /> : null}
         {activePage === "pdf" ? <PdfPage snapshot={snapshot} photos={photos} reflections={reflections} currentUserId={currentUserId} onOpenPrint={openArchivePrint} onOpenAlbum={() => switchPage("album")} onUpdateReflection={updateReflection} onCopyQr={copyInviteUrl} /> : null}
         {activePage === "settings" ? <SettingsPage snapshot={snapshot} currentUserId={currentUserId} onCopyInvite={copyInviteUrl} onOpenPrint={openArchivePrint} onUpdateMemberProfile={updateMemberProfile} /> : null}
@@ -474,6 +504,26 @@ export function TripShell({ initialSnapshot, inviteCode = null }: { initialSnaps
           </div>
           <div className="modal-actions">
             <button className="secondary" type="button" onClick={() => setTodoForm(null)}>キャンセル</button>
+            <button className="primary" type="submit">保存</button>
+          </div>
+        </form> : null}
+      </div>
+      <div className={"modal " + (expenseForm ? "open" : "")} role="dialog" aria-modal="true" aria-label="支払い入力" onClick={() => setExpenseForm(null)}>
+        {expenseForm ? <form className="modal-box plan-modal" onSubmit={submitExpense} onClick={(event) => event.stopPropagation()}>
+          <div className="section-head">
+            <div>
+              <h2>支払い入力</h2>
+              <p className="modal-lead">支払い名、金額、払った人をまとめて保存します。</p>
+            </div>
+          </div>
+          <div className="fields plan-fields">
+            <label className="field-group">支払い名<input autoFocus value={expenseForm.title} onChange={(event) => updateExpenseForm({ title: event.target.value })} placeholder="例: 夕食" /></label>
+            <label>金額<input type="number" min="1" inputMode="numeric" value={expenseForm.amount} onChange={(event) => updateExpenseForm({ amount: event.target.value })} placeholder="3000" /></label>
+            <label>払った人<select value={expenseForm.payer_id} onChange={(event) => updateExpenseForm({ payer_id: event.target.value })}>{members.map((member) => <option key={member.id} value={member.user_id}>{displayMemberName(member)}</option>)}</select></label>
+            <label>カテゴリ<select value={expenseForm.category} onChange={(event) => updateExpenseForm({ category: event.target.value })}><option value="food">食事</option><option value="transport">移動</option><option value="hotel">宿</option><option value="ticket">チケット</option><option value="other">その他</option></select></label>
+          </div>
+          <div className="modal-actions">
+            <button className="secondary" type="button" onClick={() => setExpenseForm(null)}>キャンセル</button>
             <button className="primary" type="submit">保存</button>
           </div>
         </form> : null}
