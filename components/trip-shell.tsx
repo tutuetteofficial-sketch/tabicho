@@ -569,8 +569,8 @@ export function TripShell({ initialSnapshot, inviteCode = null }: { initialSnaps
           </div>
           <div className="fields plan-fields">
             <label className="field-group">持ち物<input autoFocus value={packingForm.name} onChange={(event) => updatePackingForm({ name: event.target.value })} placeholder="例: モバイルバッテリー" /></label>
-            <label>カテゴリ<select value={packingForm.category} onChange={(event) => updatePackingForm({ category: event.target.value })}>{packingCategories.map((category) => <option key={category} value={category}>{category}</option>)}</select></label>
-            <label>担当<select value={packingForm.assigned_user_id} onChange={(event) => updatePackingForm({ assigned_user_id: event.target.value })}><option value="">共有</option>{members.map((member) => <option key={member.id} value={member.user_id}>{displayMemberName(member)}</option>)}</select></label>
+            <div className="field-group choice-field"><strong>カテゴリ</strong><div className="choice-buttons">{packingCategories.map((category) => <button type="button" key={category} className={packingForm.category === category ? "active" : ""} onClick={() => updatePackingForm({ category })}>{category}</button>)}</div></div>
+            <div className="field-group choice-field"><strong>担当</strong><div className="choice-buttons"><button type="button" className={!packingForm.assigned_user_id ? "active" : ""} onClick={() => updatePackingForm({ assigned_user_id: "" })}>共有</button>{members.map((member) => <button type="button" key={member.id} className={packingForm.assigned_user_id === member.user_id ? "active" : ""} onClick={() => updatePackingForm({ assigned_user_id: member.user_id })}>{displayMemberName(member)}</button>)}</div></div>
           </div>
           <div className="modal-actions">
             <button className="secondary" type="button" onClick={() => setPackingForm(null)}>キャンセル</button>

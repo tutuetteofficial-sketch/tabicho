@@ -320,6 +320,10 @@ main { min-width: 0; padding: 24px; }
 .plan-modal .section-head { align-items: flex-start; margin-bottom: 6px; }
 .plan-fields label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; font-weight: 900; }
 .plan-fields .todo-priority-toggle { align-self: end; min-height: 42px; }
+.choice-field strong { color: var(--muted); font-size: 12px; }
+.choice-buttons { display: flex; flex-wrap: wrap; gap: 7px; }
+.choice-buttons button { min-height: 36px; border-radius: 999px; padding: 0 12px; color: #315052; background: #eef4f2; border: 1px solid #d5e1df; font-size: 12px; font-weight: 900; }
+.choice-buttons button.active { color: #fff; background: var(--teal); border-color: var(--teal); }
 .modal-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 .template-modal { width: min(720px, 100%); max-height: calc(100vh - 40px); overflow: auto; }
 .template-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
