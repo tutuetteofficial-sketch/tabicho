@@ -1,12 +1,19 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { CSSProperties } from "react";
+import type { CSSProperties, FormEvent } from "react";
 import { AuthPanel } from "@/components/auth-panel";
 import { postJson } from "@/lib/api-client";
 import type { Expense, ItineraryItem, MemberReflection, PackingItem, Photo, Todo, TripListItem, TripMember, TripSnapshot } from "@/lib/types";
 
 type PageId = "dashboard" | "prep" | "itinerary" | "money" | "album" | "pdf" | "settings";
+type PlanFormState = {
+  title: string;
+  start_time: string;
+  link_url: string;
+  note: string;
+  isNow: boolean;
+};
 
 const pages: { id: PageId; label: string; short: string; lead: string }[] = [
   { id: "dashboard", label: "今回の旅", short: "今回", lead: "旅行中の予定、やること、写真、メモへすぐ動ける画面です。" },
@@ -67,6 +74,7 @@ export function TripShell({ initialSnapshot, inviteCode = null }: { initialSnaps
   const [photos, setPhotos] = useState(initialSnapshot.photos);
   const [reflections, setReflections] = useState(initialSnapshot.reflections);
   const [toast, setToast] = useState("");
+  const [planForm, setPlanForm] = useState<PlanFormState | null>(null);
   const selectedTrip = tripChoices.find((trip) => trip.id === selectedTripId) || tripChoices[0];
   const page = pages.find((item) => item.id === activePage) || pages[0];
   const canEdit = initialSnapshot.trip.status !== "archived";
@@ -108,24 +116,44 @@ export function TripShell({ initialSnapshot, inviteCode = null }: { initialSnaps
     window.open(`${base}/archive/${initialSnapshot.trip.id}/print`, "_blank", "noopener,noreferrer");
   }
 
-  async function addPlan(now = false) {
+  function openPlanForm(now = false) {
     if (!requireEditable()) return;
-    const title = window.prompt("予定の内容", now ? "いまいる場所をメモ" : "新しい予定");
-    if (!title) return;
-    const link = window.prompt("地図や食べログなどのURL（空でもOK）", "") || "";
+    setPlanForm({
+      title: now ? "いまいる場所をメモ" : "",
+      start_time: now ? currentClockTime() : "10:00",
+      link_url: "",
+      note: now ? "旅行中に追加" : "",
+      isNow: now
+    });
+  }
+
+  function updatePlanForm(patch: Partial<PlanFormState>) {
+    setPlanForm((form) => form ? { ...form, ...patch } : form);
+  }
+
+  async function submitPlan(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!requireEditable() || !planForm) return;
+    const title = planForm.title.trim();
+    if (!title) {
+      showToast("予定名を入力してください");
+      return;
+    }
+    const link = planForm.link_url.trim();
     const draft: ItineraryItem = {
       id: "local-" + Date.now(),
       day_id: today.id,
       title,
-      start_time: now ? currentClockTime() : window.prompt("開始時間", "10:00") || currentClockTime(),
+      start_time: planForm.start_time || currentClockTime(),
       link_url: normalizeUrl(link),
       link_label: guessLinkLabel(link),
       map_url: link.includes("maps") ? normalizeUrl(link) : undefined,
-      note: now ? "旅行中に追加" : undefined,
+      note: planForm.note.trim() || undefined,
       type: "normal"
     };
     const saved = await postJson<ItineraryItem>("/api/itinerary", draft);
     setItinerary((items) => [saved ?? draft, ...items]);
+    setPlanForm(null);
     showToast("スケジュールに追加しました");
   }
 
@@ -375,14 +403,34 @@ export function TripShell({ initialSnapshot, inviteCode = null }: { initialSnaps
 
         {inviteCode ? <section className="archive-entry-banner"><div><small>招待リンクから開いています</small><strong>{inviteCode === initialSnapshot.trip.invite_code ? "参加リンク確認済み" : "招待コードを確認してください"}</strong><p>冊子QRはあとから見返す入口として使い、旅行中は写真タブから投稿します。</p></div><div className="archive-entry-actions"><button className="primary" onClick={() => switchPage("album")}>写真タブを開く</button><button className="secondary" onClick={openArchivePrint}>冊子プレビュー</button></div></section> : null}
 
-        {activePage === "dashboard" ? <Dashboard snapshot={snapshot} nextItem={nextItem} upcomingItems={upcomingItems} wishlist={wishlist} expenses={expenses} onAddNow={() => addPlan(true)} onAddPlan={() => addPlan(false)} onAddWish={addWish} onMoveWish={moveWishToPlan} onToggleWish={toggleWish} onDeleteWish={deleteWish} onMoney={() => switchPage("money")} onAlbum={() => switchPage("album")} onMemo={() => showToast("メモ機能は次に本物化します")} onWeather={() => window.open("https://www.google.com/search?q=" + encodeURIComponent((nextItem?.location_name || selectedTrip.destination) + " 天気"), "_blank")} onSettings={() => switchPage("settings")} /> : null}
+        {activePage === "dashboard" ? <Dashboard snapshot={snapshot} nextItem={nextItem} upcomingItems={upcomingItems} wishlist={wishlist} expenses={expenses} onAddNow={() => openPlanForm(true)} onAddPlan={() => openPlanForm(false)} onAddWish={addWish} onMoveWish={moveWishToPlan} onToggleWish={toggleWish} onDeleteWish={deleteWish} onMoney={() => switchPage("money")} onAlbum={() => switchPage("album")} onMemo={() => showToast("メモ機能は次に本物化します")} onWeather={() => window.open("https://www.google.com/search?q=" + encodeURIComponent((nextItem?.location_name || selectedTrip.destination) + " 天気"), "_blank")} onSettings={() => switchPage("settings")} /> : null}
         {activePage === "prep" ? <PreparationPage snapshot={snapshot} packing={packing} todos={todos} currentUserId={currentUserId} onAddPacking={() => addPackingItem()} onTemplate={applyPackingTemplate} onTogglePacking={togglePacking} onDeletePacking={deletePacking} onAddTodo={addTodo} onToggleTodo={toggleTodo} onDeleteTodo={deleteTodo} /> : null}
-        {activePage === "itinerary" ? <ItineraryPage snapshot={snapshot} itinerary={itinerary} onAdd={() => addPlan(false)} onAddNow={() => addPlan(true)} onDelete={deletePlan} /> : null}
+        {activePage === "itinerary" ? <ItineraryPage snapshot={snapshot} itinerary={itinerary} onAdd={() => openPlanForm(false)} onAddNow={() => openPlanForm(true)} onDelete={deletePlan} /> : null}
         {activePage === "money" ? <MoneyPage snapshot={snapshot} expenses={expenses} currentUserId={currentUserId} onAdd={addExpense} /> : null}
         {activePage === "album" ? <AlbumPage snapshot={snapshot} photos={photos} itinerary={itinerary} currentUserId={currentUserId} onPost={addPhoto} onUpdatePhoto={updatePhoto} /> : null}
         {activePage === "pdf" ? <PdfPage snapshot={snapshot} photos={photos} reflections={reflections} currentUserId={currentUserId} onOpenPrint={openArchivePrint} onOpenAlbum={() => switchPage("album")} onUpdateReflection={updateReflection} onCopyQr={copyInviteUrl} /> : null}
         {activePage === "settings" ? <SettingsPage snapshot={snapshot} currentUserId={currentUserId} onCopyInvite={copyInviteUrl} onOpenPrint={openArchivePrint} onUpdateMemberProfile={updateMemberProfile} /> : null}
       </main>
+      <div className={"modal " + (planForm ? "open" : "")} role="dialog" aria-modal="true" aria-label="予定追加" onClick={() => setPlanForm(null)}>
+        {planForm ? <form className="modal-box plan-modal" onSubmit={submitPlan} onClick={(event) => event.stopPropagation()}>
+          <div className="section-head">
+            <div>
+              <h2>{planForm.isNow ? "今を追加" : "予定追加"}</h2>
+              <p className="modal-lead">予定名、時間、リンク、メモをまとめて保存します。</p>
+            </div>
+          </div>
+          <div className="fields plan-fields">
+            <label className="field-group">予定名<input autoFocus value={planForm.title} onChange={(event) => updatePlanForm({ title: event.target.value })} placeholder="例: 近江町市場で昼食" /></label>
+            <label>開始時間<input type="time" value={planForm.start_time} onChange={(event) => updatePlanForm({ start_time: event.target.value })} /></label>
+            <label>リンク<input value={planForm.link_url} onChange={(event) => updatePlanForm({ link_url: event.target.value })} placeholder="Google Maps / 食べログなど" inputMode="url" /></label>
+            <label className="field-group">メモ<textarea value={planForm.note} onChange={(event) => updatePlanForm({ note: event.target.value })} placeholder="予約名、集合場所、気をつけることなど" /></label>
+          </div>
+          <div className="modal-actions">
+            <button className="secondary" type="button" onClick={() => setPlanForm(null)}>キャンセル</button>
+            <button className="primary" type="submit">保存</button>
+          </div>
+        </form> : null}
+      </div>
       <nav className="mobile-nav" aria-label="モバイル主画面">{pages.map((item) => <button key={item.id} className={activePage === item.id ? "active" : ""} onClick={() => switchPage(item.id)}>{item.short}</button>)}</nav>
       <div className={"toast " + (toast ? "show" : "")}>{toast}</div>
     </div>
