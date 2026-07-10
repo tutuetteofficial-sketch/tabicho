@@ -1,0 +1,12 @@
+.next
+node_modules
+.env
+.env.local
+.env*.local
+outputs
+work
+.agents
+.codex
+*.cmd
+*.url
+FRIEND_TEST_QUICK_START.md

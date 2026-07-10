@@ -1,0 +1,17 @@
+Tabicho GitHub upload
+
+Upload the contents of this folder to a new GitHub repository.
+
+Do not upload:
+- .env
+- .env.local
+- node_modules
+- .next
+- .vercel
+
+After GitHub upload:
+1. Open Vercel.
+2. Import the GitHub repository.
+3. Add the same Supabase environment variables in Vercel.
+4. Deploy.
+

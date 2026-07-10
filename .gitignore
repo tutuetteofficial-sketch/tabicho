@@ -1,0 +1,14 @@
+node_modules
+.next
+.env
+.env.local
+.env*.local
+.vercel
+.DS_Store
+outputs
+work
+.agents
+.codex
+*.cmd
+*.url
+github-upload
