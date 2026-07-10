@@ -14,6 +14,12 @@ type PlanFormState = {
   note: string;
   isNow: boolean;
 };
+type TodoFormState = {
+  title: string;
+  assigned_user_id: string;
+  due_date: string;
+  emphasized: boolean;
+};
 
 const pages: { id: PageId; label: string; short: string; lead: string }[] = [
   { id: "dashboard", label: "今回の旅", short: "今回", lead: "旅行中の予定、やること、写真、メモへすぐ動ける画面です。" },
@@ -75,6 +81,7 @@ export function TripShell({ initialSnapshot, inviteCode = null }: { initialSnaps
   const [reflections, setReflections] = useState(initialSnapshot.reflections);
   const [toast, setToast] = useState("");
   const [planForm, setPlanForm] = useState<PlanFormState | null>(null);
+  const [todoForm, setTodoForm] = useState<TodoFormState | null>(null);
   const selectedTrip = tripChoices.find((trip) => trip.id === selectedTripId) || tripChoices[0];
   const page = pages.find((item) => item.id === activePage) || pages[0];
   const canEdit = initialSnapshot.trip.status !== "archived";
@@ -254,20 +261,40 @@ export function TripShell({ initialSnapshot, inviteCode = null }: { initialSnaps
     await postJson("/api/packing", { ...item, action: "delete" });
   }
 
-  async function addTodo() {
+  function openTodoForm() {
     if (!requireEditable()) return;
-    const title = window.prompt("やること", "夜のお店を予約する");
-    if (!title) return;
+    setTodoForm({
+      title: "",
+      assigned_user_id: currentUserId || "",
+      due_date: "",
+      emphasized: false
+    });
+  }
+
+  function updateTodoForm(patch: Partial<TodoFormState>) {
+    setTodoForm((form) => form ? { ...form, ...patch } : form);
+  }
+
+  async function submitTodo(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!requireEditable() || !todoForm) return;
+    const title = todoForm.title.trim();
+    if (!title) {
+      showToast("やることを入力してください");
+      return;
+    }
     const draft: Todo = {
       id: "local-todo-" + Date.now(),
       trip_id: initialSnapshot.trip.id,
       title,
-      assigned_user_id: currentUserId || undefined,
+      assigned_user_id: todoForm.assigned_user_id || undefined,
+      due_date: todoForm.due_date || undefined,
       completed: false,
-      emphasized: window.confirm("優先するものにしますか？")
+      emphasized: todoForm.emphasized
     };
     const saved = await postJson<Todo>("/api/todos", draft);
     setTodos((items) => [saved ?? draft, ...items].sort(sortTodos));
+    setTodoForm(null);
     showToast("やることを追加しました");
   }
 
@@ -404,7 +431,7 @@ export function TripShell({ initialSnapshot, inviteCode = null }: { initialSnaps
         {inviteCode ? <section className="archive-entry-banner"><div><small>招待リンクから開いています</small><strong>{inviteCode === initialSnapshot.trip.invite_code ? "参加リンク確認済み" : "招待コードを確認してください"}</strong><p>冊子QRはあとから見返す入口として使い、旅行中は写真タブから投稿します。</p></div><div className="archive-entry-actions"><button className="primary" onClick={() => switchPage("album")}>写真タブを開く</button><button className="secondary" onClick={openArchivePrint}>冊子プレビュー</button></div></section> : null}
 
         {activePage === "dashboard" ? <Dashboard snapshot={snapshot} nextItem={nextItem} upcomingItems={upcomingItems} wishlist={wishlist} expenses={expenses} onAddNow={() => openPlanForm(true)} onAddPlan={() => openPlanForm(false)} onAddWish={addWish} onMoveWish={moveWishToPlan} onToggleWish={toggleWish} onDeleteWish={deleteWish} onMoney={() => switchPage("money")} onAlbum={() => switchPage("album")} onMemo={() => showToast("メモ機能は次に本物化します")} onWeather={() => window.open("https://www.google.com/search?q=" + encodeURIComponent((nextItem?.location_name || selectedTrip.destination) + " 天気"), "_blank")} onSettings={() => switchPage("settings")} /> : null}
-        {activePage === "prep" ? <PreparationPage snapshot={snapshot} packing={packing} todos={todos} currentUserId={currentUserId} onAddPacking={() => addPackingItem()} onTemplate={applyPackingTemplate} onTogglePacking={togglePacking} onDeletePacking={deletePacking} onAddTodo={addTodo} onToggleTodo={toggleTodo} onDeleteTodo={deleteTodo} /> : null}
+        {activePage === "prep" ? <PreparationPage snapshot={snapshot} packing={packing} todos={todos} currentUserId={currentUserId} onAddPacking={() => addPackingItem()} onTemplate={applyPackingTemplate} onTogglePacking={togglePacking} onDeletePacking={deletePacking} onAddTodo={openTodoForm} onToggleTodo={toggleTodo} onDeleteTodo={deleteTodo} /> : null}
         {activePage === "itinerary" ? <ItineraryPage snapshot={snapshot} itinerary={itinerary} onAdd={() => openPlanForm(false)} onAddNow={() => openPlanForm(true)} onDelete={deletePlan} /> : null}
         {activePage === "money" ? <MoneyPage snapshot={snapshot} expenses={expenses} currentUserId={currentUserId} onAdd={addExpense} /> : null}
         {activePage === "album" ? <AlbumPage snapshot={snapshot} photos={photos} itinerary={itinerary} currentUserId={currentUserId} onPost={addPhoto} onUpdatePhoto={updatePhoto} /> : null}
@@ -427,6 +454,26 @@ export function TripShell({ initialSnapshot, inviteCode = null }: { initialSnaps
           </div>
           <div className="modal-actions">
             <button className="secondary" type="button" onClick={() => setPlanForm(null)}>キャンセル</button>
+            <button className="primary" type="submit">保存</button>
+          </div>
+        </form> : null}
+      </div>
+      <div className={"modal " + (todoForm ? "open" : "")} role="dialog" aria-modal="true" aria-label="やること追加" onClick={() => setTodoForm(null)}>
+        {todoForm ? <form className="modal-box plan-modal" onSubmit={submitTodo} onClick={(event) => event.stopPropagation()}>
+          <div className="section-head">
+            <div>
+              <h2>やること追加</h2>
+              <p className="modal-lead">担当、期限、優先度までまとめて保存します。</p>
+            </div>
+          </div>
+          <div className="fields plan-fields">
+            <label className="field-group">やること<input autoFocus value={todoForm.title} onChange={(event) => updateTodoForm({ title: event.target.value })} placeholder="例: 夜のお店を予約する" /></label>
+            <label>担当<select value={todoForm.assigned_user_id} onChange={(event) => updateTodoForm({ assigned_user_id: event.target.value })}><option value="">担当なし</option>{members.map((member) => <option key={member.id} value={member.user_id}>{displayMemberName(member)}</option>)}</select></label>
+            <label>期限<input type="date" value={todoForm.due_date} onChange={(event) => updateTodoForm({ due_date: event.target.value })} /></label>
+            <label className="toggle-row todo-priority-toggle"><input type="checkbox" checked={todoForm.emphasized} onChange={(event) => updateTodoForm({ emphasized: event.target.checked })} />優先する</label>
+          </div>
+          <div className="modal-actions">
+            <button className="secondary" type="button" onClick={() => setTodoForm(null)}>キャンセル</button>
             <button className="primary" type="submit">保存</button>
           </div>
         </form> : null}
