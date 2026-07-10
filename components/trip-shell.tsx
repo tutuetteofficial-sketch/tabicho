@@ -437,6 +437,15 @@ export function TripShell({ initialSnapshot, inviteCode = null }: { initialSnaps
     }
     const imageUrl = await resizeImageFile(file);
     updatePhotoForm({ image_url: imageUrl });
+    const uploaded = await postJson<{ image_url: string; stored: boolean }>("/api/photos/upload", {
+      trip_id: initialSnapshot.trip.id,
+      uploader_id: currentUserId || "user-local",
+      data_url: imageUrl
+    });
+    if (uploaded?.image_url) {
+      updatePhotoForm({ image_url: uploaded.image_url });
+      showToast(uploaded.stored ? "写真をアップロードしました" : "写真を選択しました");
+    }
   }
 
   async function submitPhoto(event: FormEvent<HTMLFormElement>) {
