@@ -325,6 +325,11 @@ main { min-width: 0; padding: 24px; }
 .choice-buttons button { min-height: 36px; border-radius: 999px; padding: 0 12px; color: #315052; background: #eef4f2; border: 1px solid #d5e1df; font-size: 12px; font-weight: 900; }
 .choice-buttons button.active { color: #fff; background: var(--teal); border-color: var(--teal); }
 .modal-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.photo-picker { display: grid; gap: 10px; margin: 10px 0 12px; }
+.photo-file-button { min-height: 42px; display: inline-flex; align-items: center; justify-content: center; border-radius: 8px; padding: 0 14px; color: #fff; background: var(--teal); font-weight: 900; cursor: pointer; }
+.photo-file-button input { position: absolute; inline-size: 1px; block-size: 1px; opacity: 0; pointer-events: none; }
+.photo-picker-preview { min-height: 190px; display: grid; place-items: center; border: 1px dashed #c8d8d5; border-radius: 8px; color: var(--muted); background: #f7faf8; font-weight: 900; }
+.photo-picker-preview.filled { place-items: end start; padding: 12px; color: #fff; background: var(--photo); background-position: center; background-size: cover; text-shadow: 0 1px 8px rgba(0,0,0,.45); }
 .template-modal { width: min(720px, 100%); max-height: calc(100vh - 40px); overflow: auto; }
 .template-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
 .template-option { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; padding: 13px; border: 1px solid var(--line); border-radius: 8px; background: #f8fbfb; }
@@ -510,7 +515,7 @@ main { min-width: 0; padding: 24px; }
 .member-photo.empty span { display: grid; gap: 5px; place-items: center; min-height: 86px; padding: 8px; }
 .member-photo.empty small { color: var(--muted); }
 .member-photo.filled { border-color: #c6b06a; background: #fff; box-shadow: 0 8px 18px rgba(22,35,38,.12); }
-.photo-thumb { --photo: linear-gradient(135deg,#7eb2b4,#f0d695); min-height: 86px; display: flex; align-items: flex-end; padding: 7px; color: #fff; background: var(--photo); text-shadow: 0 1px 8px rgba(0,0,0,.45); }
+.photo-thumb { --photo: linear-gradient(135deg,#7eb2b4,#f0d695); min-height: 86px; display: flex; align-items: flex-end; padding: 7px; color: #fff; background: var(--photo); background-position: center; background-size: cover; text-shadow: 0 1px 8px rgba(0,0,0,.45); }
 @media (max-width: 760px) { .album-slot { grid-template-columns: 1fr; } .member-photo { width: calc(50% - 4px); } }
 
 .posted-photo-strip { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; }

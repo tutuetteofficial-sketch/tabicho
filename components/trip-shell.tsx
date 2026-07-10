@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { CSSProperties, FormEvent } from "react";
+import type { ChangeEvent, CSSProperties, FormEvent } from "react";
 import { AuthPanel } from "@/components/auth-panel";
 import { postJson } from "@/lib/api-client";
 import type { Expense, ItineraryItem, MemberReflection, PackingItem, Photo, Todo, TripListItem, TripMember, TripSnapshot } from "@/lib/types";
@@ -30,6 +30,19 @@ type PackingFormState = {
   name: string;
   assigned_user_id: string;
   category: string;
+};
+type PhotoTarget = {
+  itinerary_item_id?: string | null;
+  transit_segment_id?: string | null;
+  category?: Photo["category"];
+  label?: string;
+};
+type PhotoFormState = {
+  target?: PhotoTarget;
+  existingId?: string;
+  caption: string;
+  image_url: string;
+  isBestshot: boolean;
 };
 
 const pages: { id: PageId; label: string; short: string; lead: string }[] = [
@@ -95,6 +108,7 @@ export function TripShell({ initialSnapshot, inviteCode = null }: { initialSnaps
   const [todoForm, setTodoForm] = useState<TodoFormState | null>(null);
   const [expenseForm, setExpenseForm] = useState<ExpenseFormState | null>(null);
   const [packingForm, setPackingForm] = useState<PackingFormState | null>(null);
+  const [photoForm, setPhotoForm] = useState<PhotoFormState | null>(null);
   const selectedTrip = tripChoices.find((trip) => trip.id === selectedTripId) || tripChoices[0];
   const page = pages.find((item) => item.id === activePage) || pages[0];
   const canEdit = initialSnapshot.trip.status !== "archived";
@@ -393,7 +407,7 @@ export function TripShell({ initialSnapshot, inviteCode = null }: { initialSnaps
     showToast("支払いを追加しました");
   }
 
-  async function addPhoto(target?: { itinerary_item_id?: string | null; transit_segment_id?: string | null; category?: Photo["category"]; label?: string }) {
+  function addPhoto(target?: PhotoTarget) {
     if (!requireEditable()) return;
     const isBestshot = target?.category === "bestshot";
     if (isBestshot && photos.filter((photo) => photo.category === "bestshot").length >= 25) {
@@ -401,17 +415,48 @@ export function TripShell({ initialSnapshot, inviteCode = null }: { initialSnaps
       return;
     }
     const existing = !isBestshot && target ? photos.find((photo) => photo.uploader_id === currentUserId && (target.itinerary_item_id ? photo.itinerary_item_id === target.itinerary_item_id : photo.transit_segment_id === target.transit_segment_id)) : undefined;
-    const caption = window.prompt(existing ? "写真のひとことを変更" : "写真のひとこと", existing?.caption || target?.label || "");
-    if (caption === null) return;
+    setPhotoForm({
+      target,
+      existingId: existing?.id,
+      caption: existing?.caption || target?.label || "",
+      image_url: existing?.image_url || "",
+      isBestshot
+    });
+  }
+
+  function updatePhotoForm(patch: Partial<PhotoFormState>) {
+    setPhotoForm((form) => form ? { ...form, ...patch } : form);
+  }
+
+  async function handlePhotoFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      showToast("画像ファイルを選んでください");
+      return;
+    }
+    const imageUrl = await resizeImageFile(file);
+    updatePhotoForm({ image_url: imageUrl });
+  }
+
+  async function submitPhoto(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!requireEditable() || !photoForm) return;
+    if (!photoForm.image_url) {
+      showToast("写真を選んでください");
+      return;
+    }
+    const target = photoForm.target;
+    const existing = photoForm.existingId ? photos.find((photo) => photo.id === photoForm.existingId) : undefined;
     const draft: Photo = {
-      id: existing?.id || (isBestshot ? "bestshot-photo-" : "local-photo-") + Date.now(),
+      id: existing?.id || (photoForm.isBestshot ? "bestshot-photo-" : "local-photo-") + Date.now(),
       trip_id: initialSnapshot.trip.id,
       uploader_id: currentUserId || "user-local",
       itinerary_item_id: target?.itinerary_item_id ?? null,
       transit_segment_id: target?.transit_segment_id ?? null,
       category: target?.category || existing?.category || "general",
-      image_url: existing?.image_url || randomPhotoGradient(),
-      caption: caption || undefined,
+      image_url: photoForm.image_url,
+      caption: photoForm.caption.trim() || undefined,
       like_count: existing?.like_count || 0,
       cover_candidate: existing?.cover_candidate || false,
       pdf_selected: existing?.pdf_selected || false,
@@ -421,6 +466,7 @@ export function TripShell({ initialSnapshot, inviteCode = null }: { initialSnaps
     const saved = await postJson<Photo>("/api/photos", draft);
     const result = saved ?? draft;
     setPhotos((items) => existing ? items.map((photo) => photo.id === result.id ? result : photo) : [result, ...items]);
+    setPhotoForm(null);
     showToast(existing ? "写真を変更しました" : "写真を投稿しました");
   }
 
@@ -578,6 +624,27 @@ export function TripShell({ initialSnapshot, inviteCode = null }: { initialSnaps
           </div>
         </form> : null}
       </div>
+      <div className={"modal " + (photoForm ? "open" : "")} role="dialog" aria-modal="true" aria-label="写真投稿" onClick={() => setPhotoForm(null)}>
+        {photoForm ? <form className="modal-box plan-modal photo-post-modal" onSubmit={submitPhoto} onClick={(event) => event.stopPropagation()}>
+          <div className="section-head">
+            <div>
+              <h2>{photoForm.existingId ? "写真を変更" : "写真投稿"}</h2>
+              <p className="modal-lead">スマホの写真フォルダから画像を選んで投稿します。</p>
+            </div>
+          </div>
+          <div className="photo-picker">
+            <label className="photo-file-button"><input type="file" accept="image/*" onChange={handlePhotoFile} />写真を選ぶ</label>
+            <div className={"photo-picker-preview " + (photoForm.image_url ? "filled" : "")} style={photoForm.image_url ? { "--photo": photoBackground(photoForm.image_url) } as CSSProperties : undefined}>{photoForm.image_url ? <span>選択済み</span> : <span>未選択</span>}</div>
+          </div>
+          <div className="fields plan-fields">
+            <label className="field-group">ひとこと<input value={photoForm.caption} onChange={(event) => updatePhotoForm({ caption: event.target.value })} placeholder="例: 近江町市場で昼食" /></label>
+          </div>
+          <div className="modal-actions">
+            <button className="secondary" type="button" onClick={() => setPhotoForm(null)}>キャンセル</button>
+            <button className="primary" type="submit">保存</button>
+          </div>
+        </form> : null}
+      </div>
       <nav className="mobile-nav" aria-label="モバイル主画面">{pages.map((item) => <button key={item.id} className={activePage === item.id ? "active" : ""} onClick={() => switchPage(item.id)}>{item.short}</button>)}</nav>
       <div className={"toast " + (toast ? "show" : "")}>{toast}</div>
     </div>
@@ -608,7 +675,7 @@ function MoneyPage({ snapshot, expenses, currentUserId, onAdd }: { snapshot: Tri
   return <section className="two-column"><div className="section"><div className="section-head"><h2>支払い</h2><button className="primary" onClick={onAdd}>支払い入力</button></div><div className="list">{expenses.map((expense) => <article className="expense-card" key={expense.id}><strong>{expense.title}</strong><p>{displayUser(snapshot, expense.payer_id)} が支払い</p><b>¥{expense.amount.toLocaleString("ja-JP")}</b></article>)}</div></div><div className="section"><div className="section-head"><h2>最終精算</h2><span className="tag">自分に関わるものを上に表示</span></div><div className="settlement-list">{[...mine, ...rest].map((item, index) => <article className={"settlement-row " + (index < mine.length ? "highlight" : "")} key={item.fromId + item.toId}><span>{displayUser(snapshot, item.fromId)}</span><strong>→ ¥{item.amount.toLocaleString("ja-JP")}</strong><span>{displayUser(snapshot, item.toId)}</span></article>)}</div></div></section>;
 }
 
-function AlbumPage({ snapshot, photos, itinerary, currentUserId, onPost, onUpdatePhoto }: { snapshot: TripSnapshot; photos: Photo[]; itinerary: ItineraryItem[]; currentUserId: string; onPost: (target?: { itinerary_item_id?: string | null; transit_segment_id?: string | null; category?: Photo["category"]; label?: string }) => void; onUpdatePhoto: (photo: Photo, patch: Partial<Photo>) => void }) {
+function AlbumPage({ snapshot, photos, itinerary, currentUserId, onPost, onUpdatePhoto }: { snapshot: TripSnapshot; photos: Photo[]; itinerary: ItineraryItem[]; currentUserId: string; onPost: (target?: PhotoTarget) => void; onUpdatePhoto: (photo: Photo, patch: Partial<Photo>) => void }) {
   const [tab, setTab] = useState<"schedule" | "bestshot">("schedule");
   const [selectMode, setSelectMode] = useState(false);
   const bestshots = photos.filter((photo) => photo.category === "bestshot");
@@ -636,7 +703,7 @@ function WishList({ items, members, onMove, onToggle, onDelete }: { items: TripL
 }
 
 function PhotoGrid({ photos, snapshot, selectMode, onUpdatePhoto }: { photos: Photo[]; snapshot: TripSnapshot; selectMode: boolean; onUpdatePhoto: (photo: Photo, patch: Partial<Photo>) => void }) {
-  return <div className="photo-grid">{photos.map((photo) => <button className={"photo-card " + (photo.pdf_selected ? "selected" : "")} key={photo.id} onClick={() => selectMode ? onUpdatePhoto(photo, { pdf_selected: !photo.pdf_selected }) : window.alert((photo.caption || "写真") + "\n" + displayUser(snapshot, photo.uploader_id))}><span className="photo-thumb" style={{ "--photo": photo.image_url } as CSSProperties}><b>{photo.cover_candidate ? "表紙" : photo.pdf_selected ? "PDF" : ""}</b></span><small>{photo.caption || displayUser(snapshot, photo.uploader_id)}</small>{photo.category === "bestshot" ? <span className="tag">ベスト</span> : null}{photo.category === "bestshot" ? <span className="tiny" onClick={(event) => { event.stopPropagation(); onUpdatePhoto(photo, { cover_candidate: true }); }}>表紙にする</span> : null}</button>)}</div>;
+  return <div className="photo-grid">{photos.map((photo) => <button className={"photo-card " + (photo.pdf_selected ? "selected" : "")} key={photo.id} onClick={() => selectMode ? onUpdatePhoto(photo, { pdf_selected: !photo.pdf_selected }) : window.alert((photo.caption || "写真") + "\n" + displayUser(snapshot, photo.uploader_id))}><span className="photo-thumb" style={{ "--photo": photoBackground(photo.image_url) } as CSSProperties}><b>{photo.cover_candidate ? "表紙" : photo.pdf_selected ? "PDF" : ""}</b></span><small>{photo.caption || displayUser(snapshot, photo.uploader_id)}</small>{photo.category === "bestshot" ? <span className="tag">ベスト</span> : null}{photo.category === "bestshot" ? <span className="tiny" onClick={(event) => { event.stopPropagation(); onUpdatePhoto(photo, { cover_candidate: true }); }}>表紙にする</span> : null}</button>)}</div>;
 }
 
 function PdfEditStep({ title, status, body, actionLabel, onAction }: { title: string; status: string; body: string; actionLabel?: string; onAction?: () => void }) {
@@ -735,6 +802,39 @@ function guessLinkLabel(url?: string) {
 
 function buildMapUrl(query: string) {
   return "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(query);
+}
+
+function photoBackground(value?: string) {
+  if (!value) return randomPhotoGradient();
+  if (value.startsWith("data:") || value.startsWith("http")) return `url("${value}")`;
+  return value;
+}
+
+function resizeImageFile(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("写真を読み込めませんでした"));
+    reader.onload = () => {
+      const image = new Image();
+      image.onerror = () => reject(new Error("写真を読み込めませんでした"));
+      image.onload = () => {
+        const maxSize = 1000;
+        const scale = Math.min(1, maxSize / Math.max(image.width, image.height));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(image.width * scale));
+        canvas.height = Math.max(1, Math.round(image.height * scale));
+        const context = canvas.getContext("2d");
+        if (!context) {
+          reject(new Error("写真を変換できませんでした"));
+          return;
+        }
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL("image/jpeg", 0.72));
+      };
+      image.src = String(reader.result || "");
+    };
+    reader.readAsDataURL(file);
+  });
 }
 
 function randomPhotoGradient() {
