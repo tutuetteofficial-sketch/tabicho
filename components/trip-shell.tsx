@@ -26,6 +26,11 @@ type ExpenseFormState = {
   payer_id: string;
   category: string;
 };
+type PackingFormState = {
+  name: string;
+  assigned_user_id: string;
+  category: string;
+};
 
 const pages: { id: PageId; label: string; short: string; lead: string }[] = [
   { id: "dashboard", label: "今回の旅", short: "今回", lead: "旅行中の予定、やること、写真、メモへすぐ動ける画面です。" },
@@ -89,6 +94,7 @@ export function TripShell({ initialSnapshot, inviteCode = null }: { initialSnaps
   const [planForm, setPlanForm] = useState<PlanFormState | null>(null);
   const [todoForm, setTodoForm] = useState<TodoFormState | null>(null);
   const [expenseForm, setExpenseForm] = useState<ExpenseFormState | null>(null);
+  const [packingForm, setPackingForm] = useState<PackingFormState | null>(null);
   const selectedTrip = tripChoices.find((trip) => trip.id === selectedTripId) || tripChoices[0];
   const page = pages.find((item) => item.id === activePage) || pages[0];
   const canEdit = initialSnapshot.trip.status !== "archived";
@@ -221,21 +227,46 @@ export function TripShell({ initialSnapshot, inviteCode = null }: { initialSnaps
     await postJson("/api/wishlist", { ...item, action: "delete" });
   }
 
-  async function addPackingItem(name?: string) {
+  function openPackingForm(name = "") {
     if (!requireEditable()) return;
-    const itemName = name || window.prompt("持ち物", "モバイルバッテリー");
-    if (!itemName) return;
+    setPackingForm({
+      name,
+      assigned_user_id: currentUserId || "",
+      category: name ? categoryOfPackingItem(name) : "その他"
+    });
+  }
+
+  function updatePackingForm(patch: Partial<PackingFormState>) {
+    setPackingForm((form) => {
+      if (!form) return form;
+      const next = { ...form, ...patch };
+      if (patch.name !== undefined && form.category === categoryOfPackingItem(form.name)) {
+        next.category = categoryOfPackingItem(patch.name);
+      }
+      return next;
+    });
+  }
+
+  async function submitPacking(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!requireEditable() || !packingForm) return;
+    const itemName = packingForm.name.trim();
+    if (!itemName) {
+      showToast("持ち物を入力してください");
+      return;
+    }
     const draft: PackingItem = {
       id: "local-pack-" + Date.now(),
       trip_id: initialSnapshot.trip.id,
       name: itemName,
-      assigned_user_id: currentUserId || undefined,
-      category: categoryOfPackingItem(itemName),
+      assigned_user_id: packingForm.assigned_user_id || undefined,
+      category: categoryOfPackingItem(itemName, packingForm.category),
       checked: false,
       locked: false
     };
     const saved = await postJson<PackingItem>("/api/packing", draft);
     setPacking((items) => [saved ?? draft, ...items]);
+    setPackingForm(null);
     showToast("持ち物を追加しました");
   }
 
@@ -461,7 +492,7 @@ export function TripShell({ initialSnapshot, inviteCode = null }: { initialSnaps
         {inviteCode ? <section className="archive-entry-banner"><div><small>招待リンクから開いています</small><strong>{inviteCode === initialSnapshot.trip.invite_code ? "参加リンク確認済み" : "招待コードを確認してください"}</strong><p>冊子QRはあとから見返す入口として使い、旅行中は写真タブから投稿します。</p></div><div className="archive-entry-actions"><button className="primary" onClick={() => switchPage("album")}>写真タブを開く</button><button className="secondary" onClick={openArchivePrint}>冊子プレビュー</button></div></section> : null}
 
         {activePage === "dashboard" ? <Dashboard snapshot={snapshot} nextItem={nextItem} upcomingItems={upcomingItems} wishlist={wishlist} expenses={expenses} onAddNow={() => openPlanForm(true)} onAddPlan={() => openPlanForm(false)} onAddWish={addWish} onMoveWish={moveWishToPlan} onToggleWish={toggleWish} onDeleteWish={deleteWish} onMoney={() => switchPage("money")} onAlbum={() => switchPage("album")} onMemo={() => showToast("メモ機能は次に本物化します")} onWeather={() => window.open("https://www.google.com/search?q=" + encodeURIComponent((nextItem?.location_name || selectedTrip.destination) + " 天気"), "_blank")} onSettings={() => switchPage("settings")} /> : null}
-        {activePage === "prep" ? <PreparationPage snapshot={snapshot} packing={packing} todos={todos} currentUserId={currentUserId} onAddPacking={() => addPackingItem()} onTemplate={applyPackingTemplate} onTogglePacking={togglePacking} onDeletePacking={deletePacking} onAddTodo={openTodoForm} onToggleTodo={toggleTodo} onDeleteTodo={deleteTodo} /> : null}
+        {activePage === "prep" ? <PreparationPage snapshot={snapshot} packing={packing} todos={todos} currentUserId={currentUserId} onAddPacking={() => openPackingForm()} onTemplate={applyPackingTemplate} onTogglePacking={togglePacking} onDeletePacking={deletePacking} onAddTodo={openTodoForm} onToggleTodo={toggleTodo} onDeleteTodo={deleteTodo} /> : null}
         {activePage === "itinerary" ? <ItineraryPage snapshot={snapshot} itinerary={itinerary} onAdd={() => openPlanForm(false)} onAddNow={() => openPlanForm(true)} onDelete={deletePlan} /> : null}
         {activePage === "money" ? <MoneyPage snapshot={snapshot} expenses={expenses} currentUserId={currentUserId} onAdd={openExpenseForm} /> : null}
         {activePage === "album" ? <AlbumPage snapshot={snapshot} photos={photos} itinerary={itinerary} currentUserId={currentUserId} onPost={addPhoto} onUpdatePhoto={updatePhoto} /> : null}
@@ -524,6 +555,25 @@ export function TripShell({ initialSnapshot, inviteCode = null }: { initialSnaps
           </div>
           <div className="modal-actions">
             <button className="secondary" type="button" onClick={() => setExpenseForm(null)}>キャンセル</button>
+            <button className="primary" type="submit">保存</button>
+          </div>
+        </form> : null}
+      </div>
+      <div className={"modal " + (packingForm ? "open" : "")} role="dialog" aria-modal="true" aria-label="持ち物追加" onClick={() => setPackingForm(null)}>
+        {packingForm ? <form className="modal-box plan-modal" onSubmit={submitPacking} onClick={(event) => event.stopPropagation()}>
+          <div className="section-head">
+            <div>
+              <h2>持ち物追加</h2>
+              <p className="modal-lead">持ち物名、カテゴリ、担当者をまとめて保存します。</p>
+            </div>
+          </div>
+          <div className="fields plan-fields">
+            <label className="field-group">持ち物<input autoFocus value={packingForm.name} onChange={(event) => updatePackingForm({ name: event.target.value })} placeholder="例: モバイルバッテリー" /></label>
+            <label>カテゴリ<select value={packingForm.category} onChange={(event) => updatePackingForm({ category: event.target.value })}>{packingCategories.map((category) => <option key={category} value={category}>{category}</option>)}</select></label>
+            <label>担当<select value={packingForm.assigned_user_id} onChange={(event) => updatePackingForm({ assigned_user_id: event.target.value })}><option value="">共有</option>{members.map((member) => <option key={member.id} value={member.user_id}>{displayMemberName(member)}</option>)}</select></label>
+          </div>
+          <div className="modal-actions">
+            <button className="secondary" type="button" onClick={() => setPackingForm(null)}>キャンセル</button>
             <button className="primary" type="submit">保存</button>
           </div>
         </form> : null}
