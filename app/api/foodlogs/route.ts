@@ -1,9 +1,12 @@
 import { jsonOk, readJson } from "@/lib/api-utils";
+import { requireTripEditor, requireTripMember } from "@/lib/api-auth";
 import { getDemoTripSnapshot } from "@/lib/data";
 import { saveRow, selectRows } from "@/lib/server-crud";
 
-export async function GET() {
+export async function GET(request: Request) {
   const fallback = getDemoTripSnapshot().foodLogs;
+  const authError = await requireTripMember(request, getDemoTripSnapshot().trip.id);
+  if (authError) return authError;
   return jsonOk(await selectRows("food_logs", fallback, { tripId: getDemoTripSnapshot().trip.id }));
 }
 
@@ -21,5 +24,7 @@ export async function POST(request: Request) {
     image_urls: Array.isArray(body.image_urls) ? body.image_urls : [],
     created_at: body.created_at ?? new Date().toISOString()
   };
+  const authError = await requireTripEditor(request, fallback.trip_id);
+  if (authError) return authError;
   return jsonOk(await saveRow("food_logs", fallback, fallback));
 }

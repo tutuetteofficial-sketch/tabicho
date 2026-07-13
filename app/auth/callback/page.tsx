@@ -4,6 +4,13 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { createBrowserSupabaseClient } from "@/lib/supabase";
 
+function safeNextPath(value: string | null) {
+  if (!value || !value.startsWith("/") || value.startsWith("//")) {
+    return "/trips/trip-kanazawa-2026";
+  }
+  return value;
+}
+
 function AuthCallbackContent() {
   const searchParams = useSearchParams();
   const supabase = useMemo(() => createBrowserSupabaseClient(), []);
@@ -19,7 +26,7 @@ function AuthCallbackContent() {
       }
 
       const code = searchParams.get("code");
-      const next = searchParams.get("next") || "/trips/trip-kanazawa-2026";
+      const next = safeNextPath(searchParams.get("next"));
 
       if (code) {
         const { error } = await supabase.auth.exchangeCodeForSession(code);
