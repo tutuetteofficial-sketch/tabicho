@@ -1,4 +1,5 @@
 import { jsonOk, readJson } from "@/lib/api-utils";
+import { requireTripEditor } from "@/lib/api-auth";
 import { createServerSupabaseClient, hasSupabaseConfig } from "@/lib/supabase";
 
 const PHOTO_BUCKET = "trip-photos";
@@ -9,6 +10,9 @@ export async function POST(request: Request) {
   const tripId = typeof body.trip_id === "string" ? body.trip_id : "trip";
   const uploaderId = typeof body.uploader_id === "string" ? body.uploader_id : "user";
   const parsed = parseImageDataUrl(dataUrl);
+
+  const authError = await requireTripEditor(request, tripId);
+  if (authError) return authError;
 
   if (!parsed) {
     return jsonOk({ image_url: dataUrl, storage_path: null, stored: false });

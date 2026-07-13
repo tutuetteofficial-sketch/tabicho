@@ -1,8 +1,11 @@
 import { jsonOk, readJson } from "@/lib/api-utils";
+import { requireTripEditor, requireTripMember, tripIdForItineraryDay } from "@/lib/api-auth";
 import { getDemoTripSnapshot } from "@/lib/data";
-import { saveRow, selectRows } from "@/lib/server-crud";
+import { deleteRow, saveRow, selectRows } from "@/lib/server-crud";
 
-export async function GET() {
+export async function GET(request: Request) {
+  const authError = await requireTripMember(request, getDemoTripSnapshot().trip.id);
+  if (authError) return authError;
   return jsonOk(await selectRows("itinerary_items", getDemoTripSnapshot().itinerary));
 }
 
@@ -32,5 +35,9 @@ export async function POST(request: Request) {
     rejoin_time: body.rejoin_time ?? null,
     type: body.type ?? "normal"
   };
+  const tripId = await tripIdForItineraryDay(fallback.day_id);
+  const authError = await requireTripEditor(request, tripId);
+  if (authError) return authError;
+  if (body.action === "delete") return jsonOk(await deleteRow("itinerary_items", fallback, fallback));
   return jsonOk(await saveRow("itinerary_items", fallback, fallback));
 }
