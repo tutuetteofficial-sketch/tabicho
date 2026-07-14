@@ -615,7 +615,7 @@ export function TripShell({ initialSnapshot, inviteCode = null }: { initialSnaps
             <strong>{isSupabaseSource ? "Supabase saved" : "Demo data mode"}</strong>
             <span>{initialSnapshot.sourceMessage || (isSupabaseSource ? "Loaded from Supabase." : "Using local demo data.")}</span>
           </div>
-          <a href="/launch">Open launch check</a>
+          {process.env.NODE_ENV !== "production" ? <a href="/launch">Open launch check</a> : null}
         </section>
 
         {displayInviteCode ? <section className="archive-entry-banner"><div><small>招待リンクから開いています</small><strong>{displayInviteCode === currentInviteCode ? "参加リンク確認済み" : "招待コードを確認してください"}</strong><p>冊子QRはあとから見返す入口として使い、旅行中は写真タブから投稿します。</p></div><div className="archive-entry-actions"><button className="primary" onClick={() => switchPage("album")}>写真タブを開く</button><button className="secondary" onClick={openArchivePrint}>冊子プレビュー</button></div></section> : null}

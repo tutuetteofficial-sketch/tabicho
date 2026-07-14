@@ -1,4 +1,4 @@
-import { jsonOk } from "@/lib/api-utils";
+import { jsonError, jsonOk } from "@/lib/api-utils";
 import { createServerSupabaseClient, hasSupabaseConfig } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
@@ -18,6 +18,10 @@ const tableNames = [
 ];
 
 export async function GET() {
+  if (process.env.NODE_ENV === "production") {
+    return jsonError("Not found.", 404);
+  }
+
   if (!hasSupabaseConfig()) {
     return jsonOk({
       connected: false,

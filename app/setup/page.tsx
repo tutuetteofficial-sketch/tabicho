@@ -27,6 +27,8 @@ const checks = [
 ];
 
 export default function SetupPage() {
+  if (process.env.NODE_ENV === "production") redirect("/");
+
   return (
     <main className="diagnostic-page">
       <h1>旅帖 セットアップ</h1>
@@ -52,3 +54,4 @@ export default function SetupPage() {
     </main>
   );
 }
+import { redirect } from "next/navigation";

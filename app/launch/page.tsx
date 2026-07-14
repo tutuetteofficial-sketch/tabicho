@@ -1,4 +1,5 @@
 import { hasSupabaseConfig } from "@/lib/supabase";
+import { redirect } from "next/navigation";
 
 const launchLinks = [
   {
@@ -34,6 +35,8 @@ const launchLinks = [
 ];
 
 export default function LaunchPage() {
+  if (process.env.NODE_ENV === "production") redirect("/");
+
   const supabaseConfigured = hasSupabaseConfig();
 
   return (
