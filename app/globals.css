@@ -764,6 +764,16 @@ main { min-width: 0; padding: 24px; }
 .list-actions .tiny { min-height: 30px; }
 .compact-more, .empty-inline { margin: 8px 0 0; color: var(--muted); font-size: 13px; font-weight: 800; }
 .empty-inline { padding: 12px; border: 1px dashed #d7e6df; border-radius: 8px; background: #f8fbfb; }
+.memo-list { display: grid; gap: 8px; margin-top: 8px; }
+.memo-card { display: grid; gap: 7px; padding: 11px; border: 1px solid #d7e6df; border-radius: 8px; background: #fffdf8; }
+.memo-card-head { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+.memo-card-head span { border-radius: 999px; padding: 3px 8px; font-size: 11px; font-weight: 900; }
+.memo-card-head span.shared { color: #2f6f73; background: #e8f3ef; }
+.memo-card-head span.private { color: #76562d; background: #fff0cf; }
+.memo-card-head small { color: var(--muted); font-weight: 800; }
+.memo-card p { margin: 0; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.memo-actions { display: flex; justify-content: flex-end; gap: 6px; }
+.memo-modal textarea { min-height: 150px; resize: vertical; }
 
 .list-kind-placeholder { color: var(--muted); background: #f8faf9; font-size: 13px; }
 

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ChangeEvent, CSSProperties, FormEvent } from "react";
 import { AuthPanel } from "@/components/auth-panel";
 import { postJson } from "@/lib/api-client";
-import type { Expense, ItineraryItem, MemberReflection, PackingItem, Photo, Todo, TripListItem, TripMember, TripSnapshot } from "@/lib/types";
+import type { Expense, ItineraryItem, MemberReflection, PackingItem, Photo, Todo, TripComment, TripListItem, TripMember, TripSnapshot } from "@/lib/types";
 
 type PageId = "dashboard" | "prep" | "itinerary" | "money" | "album" | "pdf" | "settings";
 type PlanFormState = {
@@ -43,6 +43,12 @@ type PhotoFormState = {
   caption: string;
   image_url: string;
   isBestshot: boolean;
+};
+type MemoFormState = {
+  id?: string;
+  body: string;
+  category: "memo_shared" | "memo_private";
+  created_at?: string;
 };
 
 const pages: { id: PageId; label: string; short: string; lead: string }[] = [
@@ -99,12 +105,14 @@ export function TripShell({ initialSnapshot, inviteCode = null }: { initialSnaps
   const [expenses, setExpenses] = useState(initialSnapshot.expenses);
   const [photos, setPhotos] = useState(initialSnapshot.photos);
   const [reflections, setReflections] = useState(initialSnapshot.reflections);
+  const [comments, setComments] = useState(initialSnapshot.comments);
   const [toast, setToast] = useState("");
   const [planForm, setPlanForm] = useState<PlanFormState | null>(null);
   const [todoForm, setTodoForm] = useState<TodoFormState | null>(null);
   const [expenseForm, setExpenseForm] = useState<ExpenseFormState | null>(null);
   const [packingForm, setPackingForm] = useState<PackingFormState | null>(null);
   const [photoForm, setPhotoForm] = useState<PhotoFormState | null>(null);
+  const [memoForm, setMemoForm] = useState<MemoFormState | null>(null);
   const selectedTrip = {
     id: initialSnapshot.trip.id,
     title: initialSnapshot.trip.title,
@@ -186,6 +194,50 @@ export function TripShell({ initialSnapshot, inviteCode = null }: { initialSnaps
   function openArchivePrint() {
     const base = window.location.origin || "http://127.0.0.1:3000";
     window.open(`${base}/archive/${initialSnapshot.trip.id}/print`, "_blank", "noopener,noreferrer");
+  }
+
+  function openMemoForm(comment?: TripComment) {
+    if (!requireEditable()) return;
+    setMemoForm(comment ? {
+      id: comment.id,
+      body: comment.body,
+      category: comment.category === "memo_private" ? "memo_private" : "memo_shared",
+      created_at: comment.created_at
+    } : { body: "", category: "memo_shared" });
+  }
+
+  async function submitMemo(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!requireEditable() || !memoForm?.body.trim()) return;
+    const draft: TripComment = {
+      id: memoForm.id || "local-memo-" + Date.now(),
+      trip_id: initialSnapshot.trip.id,
+      user_id: currentUserId,
+      category: memoForm.category,
+      body: memoForm.body.trim(),
+      created_at: memoForm.created_at || new Date().toISOString()
+    };
+    const saved = await postJson<TripComment>("/api/comments", draft);
+    if (!saved) {
+      showToast("メモを保存できませんでした");
+      return;
+    }
+    setComments((items) => items.some((item) => item.id === draft.id)
+      ? items.map((item) => item.id === draft.id ? saved : item)
+      : [saved, ...items]);
+    setMemoForm(null);
+    showToast("メモを保存しました");
+  }
+
+  async function deleteMemo(comment: TripComment) {
+    if (!requireEditable() || !window.confirm("このメモを削除しますか？")) return;
+    const removed = await postJson<TripComment>("/api/comments", { ...comment, action: "delete" });
+    if (!removed) {
+      showToast("メモを削除できませんでした");
+      return;
+    }
+    setComments((items) => items.filter((item) => item.id !== comment.id));
+    showToast("メモを削除しました");
   }
 
   function openPlanForm(now = false) {
@@ -588,7 +640,7 @@ export function TripShell({ initialSnapshot, inviteCode = null }: { initialSnaps
     setCurrentUserId(member.user_id);
   }
 
-  const snapshot = { ...initialSnapshot, trip: { ...initialSnapshot.trip, invite_code: currentInviteCode }, members, wishlist, itinerary, packing, todos, expenses, photos, reflections };
+  const snapshot = { ...initialSnapshot, trip: { ...initialSnapshot.trip, invite_code: currentInviteCode }, members, wishlist, itinerary, packing, todos, expenses, photos, reflections, comments };
 
   return (
     <div className="app-shell">
@@ -620,7 +672,7 @@ export function TripShell({ initialSnapshot, inviteCode = null }: { initialSnaps
 
         {displayInviteCode ? <section className="archive-entry-banner"><div><small>招待リンクから開いています</small><strong>{displayInviteCode === currentInviteCode ? "参加リンク確認済み" : "招待コードを確認してください"}</strong><p>冊子QRはあとから見返す入口として使い、旅行中は写真タブから投稿します。</p></div><div className="archive-entry-actions"><button className="primary" onClick={() => switchPage("album")}>写真タブを開く</button><button className="secondary" onClick={openArchivePrint}>冊子プレビュー</button></div></section> : null}
 
-        {activePage === "dashboard" ? <Dashboard snapshot={snapshot} nextItem={nextItem} upcomingItems={upcomingItems} wishlist={wishlist} expenses={expenses} onAddNow={() => openPlanForm(true)} onAddPlan={() => openPlanForm(false)} onAddWish={addWish} onMoveWish={moveWishToPlan} onToggleWish={toggleWish} onDeleteWish={deleteWish} onMoney={() => switchPage("money")} onAlbum={() => switchPage("album")} onMemo={() => showToast("メモ機能は次に本物化します")} onWeather={() => window.open("https://www.google.com/search?q=" + encodeURIComponent((nextItem?.location_name || selectedTrip.destination) + " 天気"), "_blank")} onSettings={() => switchPage("settings")} /> : null}
+        {activePage === "dashboard" ? <Dashboard snapshot={snapshot} nextItem={nextItem} upcomingItems={upcomingItems} wishlist={wishlist} expenses={expenses} comments={comments} currentUserId={currentUserId} canEdit={canEdit} onAddNow={() => openPlanForm(true)} onAddPlan={() => openPlanForm(false)} onAddWish={addWish} onMoveWish={moveWishToPlan} onToggleWish={toggleWish} onDeleteWish={deleteWish} onMoney={() => switchPage("money")} onAlbum={() => switchPage("album")} onMemo={() => openMemoForm()} onEditMemo={openMemoForm} onDeleteMemo={deleteMemo} onWeather={() => window.open("https://www.google.com/search?q=" + encodeURIComponent((nextItem?.location_name || selectedTrip.destination) + " 天気"), "_blank")} onSettings={() => switchPage("settings")} /> : null}
         {activePage === "prep" ? <PreparationPage snapshot={snapshot} packing={packing} todos={todos} currentUserId={currentUserId} onAddPacking={() => openPackingForm()} onTemplate={applyPackingTemplate} onTogglePacking={togglePacking} onDeletePacking={deletePacking} onAddTodo={openTodoForm} onToggleTodo={toggleTodo} onDeleteTodo={deleteTodo} /> : null}
         {activePage === "itinerary" ? <ItineraryPage snapshot={snapshot} itinerary={itinerary} onAdd={() => openPlanForm(false)} onAddNow={() => openPlanForm(true)} onDelete={deletePlan} /> : null}
         {activePage === "money" ? <MoneyPage snapshot={snapshot} expenses={expenses} currentUserId={currentUserId} onAdd={openExpenseForm} /> : null}
@@ -728,15 +780,26 @@ export function TripShell({ initialSnapshot, inviteCode = null }: { initialSnaps
           </div>
         </form> : null}
       </div>
+      <div className={"modal " + (memoForm ? "open" : "")} role="dialog" aria-modal="true" aria-label="メモ" onClick={() => setMemoForm(null)}>
+        {memoForm ? <form className="modal-box memo-modal" onSubmit={submitMemo} onClick={(event) => event.stopPropagation()}>
+          <div className="section-head"><div><h2>{memoForm.id ? "メモを編集" : "メモを書く"}</h2><p className="modal-lead">共有メモはメンバー全員に、個人メモは自分だけに表示されます。</p></div></div>
+          <div className="fields">
+            <label className="field-group">公開範囲<select value={memoForm.category} onChange={(event) => setMemoForm((form) => form ? { ...form, category: event.target.value as MemoFormState["category"] } : form)}><option value="memo_shared">みんなに共有</option><option value="memo_private">自分だけ</option></select></label>
+            <label className="field-group">内容<textarea autoFocus required maxLength={1000} value={memoForm.body} onChange={(event) => setMemoForm((form) => form ? { ...form, body: event.target.value } : form)} placeholder="集合場所、予約番号、覚えておきたいことなど" /></label>
+          </div>
+          <div className="modal-actions"><button className="secondary" type="button" onClick={() => setMemoForm(null)}>キャンセル</button><button className="primary" type="submit">保存</button></div>
+        </form> : null}
+      </div>
       <nav className="mobile-nav" aria-label="モバイル主画面">{pages.map((item) => <button key={item.id} className={activePage === item.id ? "active" : ""} onClick={() => switchPage(item.id)}>{item.short}</button>)}</nav>
       <div className={"toast " + (toast ? "show" : "")}>{toast}</div>
     </div>
   );
 }
 
-function Dashboard({ snapshot, nextItem, upcomingItems, wishlist, expenses, onAddNow, onAddPlan, onAddWish, onMoveWish, onToggleWish, onDeleteWish, onMoney, onAlbum, onMemo, onWeather, onSettings }: { snapshot: TripSnapshot; nextItem?: ItineraryItem; upcomingItems: ItineraryItem[]; wishlist: TripListItem[]; expenses: Expense[]; onAddNow: () => void; onAddPlan: () => void; onAddWish: () => void; onMoveWish: (item: TripListItem) => void; onToggleWish: (item: TripListItem) => void; onDeleteWish: (item: TripListItem) => void; onMoney: () => void; onAlbum: () => void; onMemo: () => void; onWeather: () => void; onSettings: () => void }) {
+function Dashboard({ snapshot, nextItem, upcomingItems, wishlist, expenses, comments, currentUserId, canEdit, onAddNow, onAddPlan, onAddWish, onMoveWish, onToggleWish, onDeleteWish, onMoney, onAlbum, onMemo, onEditMemo, onDeleteMemo, onWeather, onSettings }: { snapshot: TripSnapshot; nextItem?: ItineraryItem; upcomingItems: ItineraryItem[]; wishlist: TripListItem[]; expenses: Expense[]; comments: TripComment[]; currentUserId: string; canEdit: boolean; onAddNow: () => void; onAddPlan: () => void; onAddWish: () => void; onMoveWish: (item: TripListItem) => void; onToggleWish: (item: TripListItem) => void; onDeleteWish: (item: TripListItem) => void; onMoney: () => void; onAlbum: () => void; onMemo: () => void; onEditMemo: (comment: TripComment) => void; onDeleteMemo: (comment: TripComment) => void; onWeather: () => void; onSettings: () => void }) {
   const sortedList = [...wishlist].sort(sortTripListItems);
-  return <section><div className="summary-strip"><div><small>次の予定</small><b>{nextItem?.start_time || "--:--"}</b><br />{nextItem?.title || "予定なし"}</div><button className="summary-button" onClick={onMoney}><small>お金</small><b>お金の記録</b><br />{expenses.length}件の支払い</button><button className="summary-button" onClick={onWeather}><small>天気</small><b>検索</b><br />{nextItem?.location_name || snapshot.trip.destination}</button><div><small>歩数</small><b>8,436</b><br />今日の歩数</div></div><div className="page-grid"><div className="panel"><div className="panel-head"><h2>今後のスケジュール</h2><div className="actions"><button className="secondary" onClick={onAddNow}>今を追加</button><button className="primary" onClick={onAddPlan}>予定追加</button></div></div><Timeline items={upcomingItems} /></div><div className="right-stack"><div className="panel compact"><div className="panel-head"><h2>ミニツール</h2></div><div className="mini-grid"><button onClick={onMoney}>お金の記録</button><button onClick={onAlbum}>写真投稿</button><button onClick={onMemo}>メモを書く</button><button onClick={() => window.alert("次の予定の10分前通知を想定しています")}>アラーム機能</button><button onClick={onSettings}>設定</button><button>緊急情報</button></div></div><div className="panel compact"><div className="panel-head"><div><h2>やること</h2><small className="panel-note">{wishlist.length}件</small></div><button className="primary" onClick={onAddWish}>追加</button></div><WishList items={sortedList.slice(0, 4)} members={snapshot.members} onMove={onMoveWish} onToggle={onToggleWish} onDelete={onDeleteWish} /></div><div className="panel compact memo-panel"><div className="panel-head"><h2>メモ</h2><button className="secondary" onClick={onMemo}>メモを書く</button></div><p className="empty-inline">共有メモと個人メモをここにまとめる予定です。</p></div></div></div></section>;
+  const visibleMemos = comments.filter((comment) => comment.category === "memo_shared" || comment.user_id === currentUserId).slice(0, 6);
+  return <section><div className="summary-strip"><div><small>次の予定</small><b>{nextItem?.start_time || "--:--"}</b><br />{nextItem?.title || "予定なし"}</div><button className="summary-button" onClick={onMoney}><small>お金</small><b>お金の記録</b><br />{expenses.length}件の支払い</button><button className="summary-button" onClick={onWeather}><small>天気</small><b>検索</b><br />{nextItem?.location_name || snapshot.trip.destination}</button><div><small>歩数</small><b>8,436</b><br />今日の歩数</div></div><div className="page-grid"><div className="panel"><div className="panel-head"><h2>今後のスケジュール</h2><div className="actions"><button className="secondary" onClick={onAddNow}>今を追加</button><button className="primary" onClick={onAddPlan}>予定追加</button></div></div><Timeline items={upcomingItems} /></div><div className="right-stack"><div className="panel compact"><div className="panel-head"><h2>ミニツール</h2></div><div className="mini-grid"><button onClick={onMoney}>お金の記録</button><button onClick={onAlbum}>写真投稿</button><button onClick={onMemo}>メモを書く</button><button onClick={() => window.alert("次の予定の10分前通知を想定しています")}>アラーム機能</button><button onClick={onSettings}>設定</button><button>緊急情報</button></div></div><div className="panel compact"><div className="panel-head"><div><h2>やること</h2><small className="panel-note">{wishlist.length}件</small></div><button className="primary" onClick={onAddWish}>追加</button></div><WishList items={sortedList.slice(0, 4)} members={snapshot.members} onMove={onMoveWish} onToggle={onToggleWish} onDelete={onDeleteWish} /></div><div className="panel compact memo-panel"><div className="panel-head"><div><h2>メモ</h2><small className="panel-note">共有 / 自分だけ</small></div><button className="secondary" onClick={onMemo} disabled={!canEdit}>メモを書く</button></div>{visibleMemos.length ? <div className="memo-list">{visibleMemos.map((comment) => <article className="memo-card" key={comment.id}><div className="memo-card-head"><span className={comment.category === "memo_private" ? "private" : "shared"}>{comment.category === "memo_private" ? "自分だけ" : "共有"}</span><small>{displayUser(snapshot, comment.user_id)}</small></div><p>{comment.body}</p>{canEdit && (comment.category === "memo_shared" || comment.user_id === currentUserId) ? <div className="memo-actions"><button className="tiny" onClick={() => onEditMemo(comment)}>編集</button><button className="tiny" onClick={() => onDeleteMemo(comment)}>削除</button></div> : null}</article>)}</div> : <p className="empty-inline">まだメモはありません。</p>}</div></div></div></section>;
 }
 
 function PreparationPage({ snapshot, packing, todos, currentUserId, onAddPacking, onTemplate, onTogglePacking, onDeletePacking, onAddTodo, onToggleTodo, onDeleteTodo }: { snapshot: TripSnapshot; packing: PackingItem[]; todos: Todo[]; currentUserId: string; onAddPacking: () => void; onTemplate: () => void; onTogglePacking: (item: PackingItem) => void; onDeletePacking: (item: PackingItem) => void; onAddTodo: () => void; onToggleTodo: (todo: Todo) => void; onDeleteTodo: (todo: Todo) => void }) {
