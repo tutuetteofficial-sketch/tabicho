@@ -3,7 +3,7 @@
 export function PrintButton() {
   return (
     <button type="button" onClick={() => window.print()}>
-      {"\u5370\u5237\u30fbPDF\u4fdd\u5b58"}
+      {"PDF\u3068\u3057\u3066\u4fdd\u5b58"}
     </button>
   );
 }

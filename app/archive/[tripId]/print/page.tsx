@@ -1,11 +1,21 @@
 import type { CSSProperties, ReactNode } from "react";
+import QRCode from "qrcode";
 import { getTripSnapshot } from "@/lib/data";
 import type { Expense, ItineraryItem, Photo, TripMember, TripSnapshot } from "@/lib/types";
 import { PrintButton } from "./print-button";
 
 export default async function ArchivePrintPage({ params }: { params: { tripId: string } }) {
   const snapshot = await getTripSnapshot(params.tripId);
-  const pages = buildBookletPages(snapshot);
+  const appUrl = (process.env.NEXT_PUBLIC_APP_URL || "https://tabicho.vercel.app").replace(/\/$/, "");
+  const shareUrl = `${appUrl}/trips/${snapshot.trip.id}?invite=${encodeURIComponent(snapshot.trip.invite_code)}`;
+  const qrSvg = await QRCode.toString(shareUrl, {
+    type: "svg",
+    errorCorrectionLevel: "M",
+    margin: 1,
+    width: 360,
+    color: { dark: "#173235", light: "#ffffff" }
+  });
+  const pages = buildBookletPages(snapshot, shareUrl, qrSvg);
   const spreads = buildPreviewSpreads(pages);
   const isSupabaseSource = snapshot.source === "supabase";
 
@@ -22,7 +32,7 @@ export default async function ArchivePrintPage({ params }: { params: { tripId: s
       <div className="print-toolbar">
         <div>
           <strong>{"\u65c5\u306e\u3057\u304a\u308a\u30a2\u30fc\u30ab\u30a4\u30d6"}</strong>
-          <span>{"\u753b\u9762\u3067\u306f\u5b8c\u6210\u5f8c\u306e\u898b\u958b\u304d\u9806\u306b\u8868\u793a\u3057\u3066\u3044\u307e\u3059\u3002\u5370\u5237\u9762\u4ed8\u3051\u306f\u3042\u3068\u3067\u5c02\u7528\u51fa\u529b\u306b\u5206\u3051\u307e\u3059\u3002"}</span>
+          <span>{"\u30dc\u30bf\u30f3\u3092\u62bc\u3057\u3001\u5370\u5237\u753b\u9762\u306e\u9001\u4fe1\u5148\u3067\u300cPDF\u306b\u4fdd\u5b58\u300d\u3092\u9078\u3093\u3067\u304f\u3060\u3055\u3044\u3002"}</span>
         </div>
         <PrintButton />
       </div>
@@ -34,6 +44,14 @@ export default async function ArchivePrintPage({ params }: { params: { tripId: s
             <div className="booklet-spread">
               {spread.map((page) => <BookletPage key={page.number} page={page} />)}
             </div>
+          </section>
+        ))}
+      </div>
+
+      <div className="booklet-print-stack" aria-hidden="true">
+        {spreads.map((spread, index) => (
+          <section className="booklet-sheet" key={index}>
+            {spread.map((page) => <BookletPage key={page.number} page={page} />)}
           </section>
         ))}
       </div>
@@ -51,18 +69,18 @@ type BookletPageData = {
 
 function BookletPage({ page }: { page: BookletPageData }) {
   return (
-    <article className={"booklet-page " + (page.className || "")}>
+    <article className={"booklet-panel booklet-page " + (page.className || "")}>
       <div className="booklet-page-inner">
         <p className="booklet-kicker">{page.kicker}</p>
         <h1>{page.title}</h1>
         <div className="booklet-page-body">{page.body}</div>
-        <span className="booklet-page-number">{page.number}</span>
+        <footer className="booklet-page-number">{page.number}</footer>
       </div>
     </article>
   );
 }
 
-function buildBookletPages(snapshot: TripSnapshot): BookletPageData[] {
+function buildBookletPages(snapshot: TripSnapshot, shareUrl: string, qrSvg: string): BookletPageData[] {
   const coverPhoto = snapshot.photos.find((photo) => photo.category === "bestshot" && photo.cover_candidate) || snapshot.photos[0];
   const selectedPhotos = snapshot.photos.filter((photo) => photo.pdf_selected).slice(0, 8);
   const bestshots = snapshot.photos.filter((photo) => photo.category === "bestshot").slice(0, 8);
@@ -73,7 +91,7 @@ function buildBookletPages(snapshot: TripSnapshot): BookletPageData[] {
       number: 1,
       kicker: "cover",
       title: snapshot.trip.title,
-      className: "booklet-cover",
+      className: "cover booklet-cover",
       body: (
         <div className="booklet-cover-art">
           <PhotoBlock photo={coverPhoto} />
@@ -208,8 +226,8 @@ function buildBookletPages(snapshot: TripSnapshot): BookletPageData[] {
       title: "QR\u30ea\u30f3\u30af",
       body: (
         <div className="booklet-qr">
-          <div className="qr-placeholder">QR</div>
-          <p>/trips/{snapshot.trip.id}?invite={snapshot.trip.invite_code}</p>
+          <div className="booklet-qr-box" dangerouslySetInnerHTML={{ __html: qrSvg }} />
+          <a href={shareUrl}>{shareUrl}</a>
           <small>{"\u5370\u5237\u3057\u305f\u518a\u5b50\u304b\u3089\u3001\u5199\u771f\u30fb\u611f\u60f3\u30fb\u65c5\u7a0b\u3092\u898b\u8fd4\u3059\u305f\u3081\u306e\u5165\u53e3\u3067\u3059\u3002"}</small>
         </div>
       )
