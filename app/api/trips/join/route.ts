@@ -50,20 +50,27 @@ export async function POST(request: Request) {
 
   if (userError) return jsonError(userError.message, 500);
 
+  const { data: existingMember, error: existingMemberError } = await supabase
+    .from("trip_members")
+    .select("*, user:users(*)")
+    .eq("trip_id", tripId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (existingMemberError) return jsonError(existingMemberError.message, 500);
+  if (existingMember) return jsonOk(existingMember);
+
   const memberId = `member-${tripId}-${userId}`;
   const { data: member, error: memberError } = await supabase
     .from("trip_members")
-    .upsert(
-      {
-        id: memberId,
-        trip_id: tripId,
-        user_id: userId,
-        role: "editor",
-        trip_nickname: displayName,
-        trip_avatar_url: ""
-      },
-      { onConflict: "trip_id,user_id" }
-    )
+    .insert({
+      id: memberId,
+      trip_id: tripId,
+      user_id: userId,
+      role: "editor",
+      trip_nickname: displayName,
+      trip_avatar_url: ""
+    })
     .select("*, user:users(*)")
     .maybeSingle();
 

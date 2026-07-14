@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ChangeEvent, CSSProperties, FormEvent } from "react";
 import { AuthPanel } from "@/components/auth-panel";
 import { postJson } from "@/lib/api-client";
@@ -55,12 +55,6 @@ const pages: { id: PageId; label: string; short: string; lead: string }[] = [
   { id: "settings", label: "設定", short: "設定", lead: "権限、招待リンク、旅行終了を管理します。" }
 ];
 
-const tripChoices = [
-  { id: "trip-kanazawa-2026", title: "初夏の金沢2泊3日", destination: "金沢", startDate: "2026-06-30", status: "active" },
-  { id: "trip-osaka-live-2026", title: "大阪ライブ遠征", destination: "大阪", startDate: "2026-08-22", status: "planning" },
-  { id: "trip-hakone-family-2026", title: "箱根家族旅行", destination: "箱根", startDate: "2026-09-14", status: "planning" }
-] as const;
-
 const packingCategories = ["貴重品", "衣類", "洗面用具", "薬・衛生用品", "生活用品", "その他"];
 const templateItems = [
   "パスポート（コピーも）",
@@ -93,9 +87,11 @@ const templateItems = [
 
 export function TripShell({ initialSnapshot, inviteCode = null }: { initialSnapshot: TripSnapshot; inviteCode?: string | null }) {
   const [activePage, setActivePage] = useState<PageId>("dashboard");
-  const [selectedTripId, setSelectedTripId] = useState(initialSnapshot.trip.id);
+  const [currentInviteCode, setCurrentInviteCode] = useState(initialSnapshot.trip.invite_code);
+  const [displayInviteCode, setDisplayInviteCode] = useState(inviteCode);
   const [members, setMembers] = useState(initialSnapshot.members);
   const [currentUserId, setCurrentUserId] = useState(initialSnapshot.members[0]?.user_id || "");
+  const [authenticatedUserId, setAuthenticatedUserId] = useState<string | null>(null);
   const [wishlist, setWishlist] = useState(initialSnapshot.wishlist);
   const [itinerary, setItinerary] = useState(initialSnapshot.itinerary);
   const [packing, setPacking] = useState(initialSnapshot.packing);
@@ -109,14 +105,38 @@ export function TripShell({ initialSnapshot, inviteCode = null }: { initialSnaps
   const [expenseForm, setExpenseForm] = useState<ExpenseFormState | null>(null);
   const [packingForm, setPackingForm] = useState<PackingFormState | null>(null);
   const [photoForm, setPhotoForm] = useState<PhotoFormState | null>(null);
-  const selectedTrip = tripChoices.find((trip) => trip.id === selectedTripId) || tripChoices[0];
+  const selectedTrip = {
+    id: initialSnapshot.trip.id,
+    title: initialSnapshot.trip.title,
+    destination: initialSnapshot.trip.destination,
+    startDate: initialSnapshot.trip.start_date,
+    status: initialSnapshot.trip.status
+  };
   const page = pages.find((item) => item.id === activePage) || pages[0];
-  const canEdit = initialSnapshot.trip.status !== "archived";
+  const authenticatedMember = authenticatedUserId
+    ? members.find((member) => member.user_id === authenticatedUserId)
+    : null;
+  const currentMember = authenticatedUserId
+    ? authenticatedMember
+    : members.find((member) => member.user_id === currentUserId) || members[0];
+  const canEdit = initialSnapshot.trip.status !== "archived" && Boolean(currentMember) && currentMember?.role !== "viewer";
+  const collaborationLabel = authenticatedUserId && !authenticatedMember
+    ? "未参加"
+    : canEdit ? "共同編集中" : "閲覧のみ";
   const today = initialSnapshot.days[0];
   const upcomingItems = useMemo(() => [...itinerary].sort(sortByTime).slice(0, 5), [itinerary]);
   const nextItem = upcomingItems[0];
-  const currentMember = members.find((member) => member.user_id === currentUserId) || members[0];
   const isSupabaseSource = initialSnapshot.source === "supabase";
+
+  useEffect(() => {
+    if (authenticatedUserId && members.some((member) => member.user_id === authenticatedUserId)) {
+      setCurrentUserId(authenticatedUserId);
+    }
+  }, [authenticatedUserId, members]);
+
+  const handleAuthUserChanged = useCallback((userId: string | null) => {
+    setAuthenticatedUserId(userId);
+  }, []);
 
   function showToast(message: string) {
     setToast(message);
@@ -136,12 +156,30 @@ export function TripShell({ initialSnapshot, inviteCode = null }: { initialSnaps
 
   async function copyInviteUrl() {
     const base = window.location.origin || "http://127.0.0.1:3000";
-    const url = `${base}/trips/${initialSnapshot.trip.id}?invite=${initialSnapshot.trip.invite_code}`;
+    const url = `${base}/trips/${initialSnapshot.trip.id}?invite=${currentInviteCode}`;
     try {
       await navigator.clipboard.writeText(url);
       showToast("招待URLをコピーしました");
     } catch {
       showToast(url);
+    }
+  }
+
+  async function regenerateInviteUrl() {
+    if (!window.confirm("現在の招待リンクを無効にして、新しいリンクを発行しますか？")) return;
+    const result = await postJson<{ invite_code: string; invite_url: string }>(`/api/trips/${initialSnapshot.trip.id}/invite`, {});
+    if (!result) {
+      showToast("招待リンクを再発行できませんでした");
+      return;
+    }
+    setCurrentInviteCode(result.invite_code);
+    setDisplayInviteCode(result.invite_code);
+    window.history.replaceState(null, "", result.invite_url);
+    try {
+      await navigator.clipboard.writeText(result.invite_url);
+      showToast("新しい招待リンクをコピーしました");
+    } catch {
+      showToast("新しい招待リンクを発行しました");
     }
   }
 
@@ -509,7 +547,40 @@ export function TripShell({ initialSnapshot, inviteCode = null }: { initialSnaps
   async function updateMemberProfile(member: TripMember, patch: Partial<TripMember>) {
     const next = { ...member, ...patch };
     setMembers((items) => items.map((item) => item.id === member.id ? next : item));
-    await postJson<TripMember>("/api/members", next);
+    const saved = await postJson<TripMember>("/api/members", next);
+    if (!saved) showToast("プロフィールを更新できませんでした");
+  }
+
+  async function updateMemberRole(member: TripMember, role: "editor" | "viewer") {
+    const saved = await postJson<TripMember>("/api/members", {
+      action: "update-role",
+      id: member.id,
+      trip_id: member.trip_id,
+      user_id: member.user_id,
+      role
+    });
+    if (!saved) {
+      showToast("権限を変更できませんでした");
+      return;
+    }
+    setMembers((items) => items.map((item) => item.id === member.id ? { ...item, role: saved.role } : item));
+    showToast(role === "editor" ? "編集メンバーに変更しました" : "閲覧のみへ変更しました");
+  }
+
+  async function removeMember(member: TripMember) {
+    if (!window.confirm(`${displayMemberName(member)}をこの旅行から外しますか？`)) return;
+    const removed = await postJson<{ id: string }>("/api/members", {
+      action: "remove",
+      id: member.id,
+      trip_id: member.trip_id,
+      user_id: member.user_id
+    });
+    if (!removed) {
+      showToast("メンバーを削除できませんでした");
+      return;
+    }
+    setMembers((items) => items.filter((item) => item.id !== member.id));
+    showToast("メンバーを旅行から外しました");
   }
 
   function handleMemberJoined(member: TripMember) {
@@ -517,23 +588,26 @@ export function TripShell({ initialSnapshot, inviteCode = null }: { initialSnaps
     setCurrentUserId(member.user_id);
   }
 
-  const snapshot = { ...initialSnapshot, members, wishlist, itinerary, packing, todos, expenses, photos, reflections };
+  const snapshot = { ...initialSnapshot, trip: { ...initialSnapshot.trip, invite_code: currentInviteCode }, members, wishlist, itinerary, packing, todos, expenses, photos, reflections };
 
   return (
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand"><div className="brand-mark">旅</div><div><strong>旅帖</strong><span>みんなで育てる旅のしおり</span></div></div>
-        <label className="trip-switch"><small>今回の旅</small><select value={selectedTripId} onChange={(event) => { setSelectedTripId(event.target.value); showToast("プロトタイプでは見た目だけ切り替えています"); }}>{tripChoices.map((trip) => <option key={trip.id} value={trip.id}>{trip.status === "active" ? "進行中" : "計画中"} / {trip.title}</option>)}</select><span>{selectedTrip.destination} / {formatDate(selectedTrip.startDate)}</span></label>
+        <div className="trip-switch"><small>今回の旅</small><strong>{selectedTrip.title}</strong><span>{selectedTrip.destination} / {formatDate(selectedTrip.startDate)}</span><a href="/">旅の一覧へ</a></div>
         <nav className="nav" aria-label="主な画面">{pages.map((item) => <button key={item.id} className={activePage === item.id ? "active" : ""} onClick={() => switchPage(item.id)}><span className="nav-icon">{item.short}</span>{item.label}</button>)}</nav>
-        <AuthPanel onToast={showToast} tripId={initialSnapshot.trip.id} inviteCode={inviteCode} onMemberJoined={handleMemberJoined} />
         <button className="invite-button" onClick={copyInviteUrl}>招待URL <span>コピー</span></button>
         <div className="sidebar-foot">状態: {initialSnapshot.trip.status} / 旅行後はアーカイブ化して閲覧専用にできます。</div>
       </aside>
 
       <main>
+        <div className="main-auth-panel">
+          <a className="trip-list-link" href="/">← 旅の一覧</a>
+          <AuthPanel onToast={showToast} tripId={initialSnapshot.trip.id} inviteCode={inviteCode} onMemberJoined={handleMemberJoined} onAuthUserChanged={handleAuthUserChanged} autoJoin={false} />
+        </div>
         <header className="topbar">
           <div className="title"><h1>{page.label}</h1><div className="active-trip-title"><span>{selectedTrip.status === "active" ? "進行中" : "計画中"}</span><strong>{selectedTrip.title}</strong></div><p>{page.lead}</p></div>
-          <div className="session-tools"><label className="member-switch"><span>操作中</span><select value={currentUserId} onChange={(event) => setCurrentUserId(event.target.value)}>{members.map((member) => <option key={member.id} value={member.user_id}>{displayMemberName(member)} / {member.role}</option>)}</select></label><div className="members">{members.slice(0, 4).map((member, index) => <span className={"avatar " + (member.user_id === currentUserId ? "active" : "")} style={avatarStyle(member, index)} key={member.id}>{avatarText(member)}</span>)}<span className={"pill " + (canEdit ? "" : "readonly")}>{canEdit ? "共同編集中" : "閲覧のみ"}</span></div></div>
+          <div className="session-tools"><label className="member-switch"><span>操作中</span><select value={currentUserId} onChange={(event) => setCurrentUserId(event.target.value)} disabled={Boolean(authenticatedUserId)}>{members.map((member) => <option key={member.id} value={member.user_id}>{displayMemberName(member)} / {member.role}</option>)}</select></label><div className="members">{members.slice(0, 4).map((member, index) => <span className={"avatar " + (member.user_id === currentUserId ? "active" : "")} style={avatarStyle(member, index)} key={member.id}>{avatarText(member)}</span>)}<span className={"pill " + (canEdit ? "" : "readonly")}>{collaborationLabel}</span></div></div>
         </header>
 
         <section className={"storage-status " + (isSupabaseSource ? "online" : "demo")}>
@@ -544,7 +618,7 @@ export function TripShell({ initialSnapshot, inviteCode = null }: { initialSnaps
           <a href="/launch">Open launch check</a>
         </section>
 
-        {inviteCode ? <section className="archive-entry-banner"><div><small>招待リンクから開いています</small><strong>{inviteCode === initialSnapshot.trip.invite_code ? "参加リンク確認済み" : "招待コードを確認してください"}</strong><p>冊子QRはあとから見返す入口として使い、旅行中は写真タブから投稿します。</p></div><div className="archive-entry-actions"><button className="primary" onClick={() => switchPage("album")}>写真タブを開く</button><button className="secondary" onClick={openArchivePrint}>冊子プレビュー</button></div></section> : null}
+        {displayInviteCode ? <section className="archive-entry-banner"><div><small>招待リンクから開いています</small><strong>{displayInviteCode === currentInviteCode ? "参加リンク確認済み" : "招待コードを確認してください"}</strong><p>冊子QRはあとから見返す入口として使い、旅行中は写真タブから投稿します。</p></div><div className="archive-entry-actions"><button className="primary" onClick={() => switchPage("album")}>写真タブを開く</button><button className="secondary" onClick={openArchivePrint}>冊子プレビュー</button></div></section> : null}
 
         {activePage === "dashboard" ? <Dashboard snapshot={snapshot} nextItem={nextItem} upcomingItems={upcomingItems} wishlist={wishlist} expenses={expenses} onAddNow={() => openPlanForm(true)} onAddPlan={() => openPlanForm(false)} onAddWish={addWish} onMoveWish={moveWishToPlan} onToggleWish={toggleWish} onDeleteWish={deleteWish} onMoney={() => switchPage("money")} onAlbum={() => switchPage("album")} onMemo={() => showToast("メモ機能は次に本物化します")} onWeather={() => window.open("https://www.google.com/search?q=" + encodeURIComponent((nextItem?.location_name || selectedTrip.destination) + " 天気"), "_blank")} onSettings={() => switchPage("settings")} /> : null}
         {activePage === "prep" ? <PreparationPage snapshot={snapshot} packing={packing} todos={todos} currentUserId={currentUserId} onAddPacking={() => openPackingForm()} onTemplate={applyPackingTemplate} onTogglePacking={togglePacking} onDeletePacking={deletePacking} onAddTodo={openTodoForm} onToggleTodo={toggleTodo} onDeleteTodo={deleteTodo} /> : null}
@@ -552,7 +626,7 @@ export function TripShell({ initialSnapshot, inviteCode = null }: { initialSnaps
         {activePage === "money" ? <MoneyPage snapshot={snapshot} expenses={expenses} currentUserId={currentUserId} onAdd={openExpenseForm} /> : null}
         {activePage === "album" ? <AlbumPage snapshot={snapshot} photos={photos} itinerary={itinerary} currentUserId={currentUserId} onPost={addPhoto} onUpdatePhoto={updatePhoto} /> : null}
         {activePage === "pdf" ? <PdfPage snapshot={snapshot} photos={photos} reflections={reflections} currentUserId={currentUserId} onOpenPrint={openArchivePrint} onOpenAlbum={() => switchPage("album")} onUpdateReflection={updateReflection} onCopyQr={copyInviteUrl} /> : null}
-        {activePage === "settings" ? <SettingsPage snapshot={snapshot} currentUserId={currentUserId} onCopyInvite={copyInviteUrl} onOpenPrint={openArchivePrint} onUpdateMemberProfile={updateMemberProfile} /> : null}
+        {activePage === "settings" ? <OwnerSettingsPage snapshot={snapshot} currentUserId={currentUserId} onCopyInvite={copyInviteUrl} onRegenerateInvite={regenerateInviteUrl} onOpenPrint={openArchivePrint} onUpdateMemberProfile={updateMemberProfile} onUpdateMemberRole={updateMemberRole} onRemoveMember={removeMember} /> : null}
       </main>
       <div className={"modal " + (planForm ? "open" : "")} role="dialog" aria-modal="true" aria-label="予定追加" onClick={() => setPlanForm(null)}>
         {planForm ? <form className="modal-box plan-modal" onSubmit={submitPlan} onClick={(event) => event.stopPropagation()}>
@@ -697,6 +771,13 @@ function PdfPage({ snapshot, photos, reflections, currentUserId, onOpenPrint, on
   const coverPhoto = bestshots.find((photo) => photo.cover_candidate);
   const reflection = reflections.find((item) => item.user_id === currentUserId);
   return <section className="two-column pdf-editor-page"><div className="section"><div className="section-head"><div><h2>PDF作成</h2><small className="panel-note">表紙、旅程写真、感想カードを確認します。</small></div><button className="primary" onClick={onOpenPrint}>冊子プレビュー</button></div><div className="pdf-ready-score"><div><strong>{[coverPhoto, selectedPhotos.length, reflection?.comment].filter(Boolean).length}/3</strong><span>冊子準備</span></div><ul><li className={coverPhoto ? "done" : ""}>表紙写真</li><li className={selectedPhotos.length ? "done" : ""}>PDF掲載写真</li><li className={reflection?.comment ? "done" : ""}>感想カード</li></ul></div><div className="pdf-edit-steps"><PdfEditStep title="表紙" status={coverPhoto ? "選択済み" : "未選択"} body="ベストショットから表紙写真を選びます。" actionLabel="写真タブへ" onAction={onOpenAlbum} /><PdfEditStep title="旅程の写真" status={selectedPhotos.length + "枚"} body="スケジュール横に載せる写真を選びます。" actionLabel="写真タブへ" onAction={onOpenAlbum} /><PdfEditStep title="QR" status="自動" body="印刷した冊子から旅ページへ戻る入口です。" actionLabel="リンクコピー" onAction={onCopyQr} /></div></div><div className="section"><div className="section-head"><h2>感想カード</h2><span className="tag">{displayUser(snapshot, currentUserId)}</span></div><div className="fields pdf-reflection-fields"><label>いちばん美味しかったもの<input value={reflection?.best_food || ""} onChange={(event) => onUpdateReflection({ best_food: event.target.value })} placeholder="近江町市場の海鮮丼" /></label><label>好きな景色<input value={reflection?.favorite_view || ""} onChange={(event) => onUpdateReflection({ favorite_view: event.target.value })} placeholder="夕方のひがし茶屋街" /></label><label>ひとことコメント<textarea value={reflection?.comment || ""} onChange={(event) => onUpdateReflection({ comment: event.target.value })} placeholder="何でもない移動時間まで楽しかった。" /></label><label>次回行きたいところ<input value={reflection?.next_place || ""} onChange={(event) => onUpdateReflection({ next_place: event.target.value })} placeholder="加賀温泉" /></label></div></div></section>;
+}
+
+function OwnerSettingsPage({ snapshot, currentUserId, onCopyInvite, onRegenerateInvite, onOpenPrint, onUpdateMemberProfile, onUpdateMemberRole, onRemoveMember }: { snapshot: TripSnapshot; currentUserId: string; onCopyInvite: () => void; onRegenerateInvite: () => void; onOpenPrint: () => void; onUpdateMemberProfile: (member: TripMember, patch: Partial<TripMember>) => void; onUpdateMemberRole: (member: TripMember, role: "editor" | "viewer") => void; onRemoveMember: (member: TripMember) => void }) {
+  const currentMember = snapshot.members.find((member) => member.user_id === currentUserId);
+  const isOwner = currentMember?.role === "owner";
+
+  return <section className="two-column"><div className="section"><div className="section-head"><h2>旅行設定</h2></div><div className="list"><button className="primary" onClick={onCopyInvite}>招待リンクをコピー</button>{isOwner ? <button className="secondary invite-regenerate-button" onClick={onRegenerateInvite}>招待リンクを再発行</button> : null}<button className="secondary" onClick={onOpenPrint}>冊子プレビューを開く</button><p className="empty-inline">{isOwner ? "あなたはこの旅行のオーナーです。メンバーの編集・閲覧権限を管理できます。" : "メンバー権限の変更と削除は、旅行のオーナーだけが行えます。"}</p></div></div><div className="section"><div className="section-head"><div><h2>メンバー管理</h2><small className="panel-note">{snapshot.members.length}人</small></div></div><div className="list">{snapshot.members.map((member, index) => { const canEditProfile = isOwner || member.user_id === currentUserId; return <article className="member-profile-card member-management-card" key={member.id}><span className="avatar" style={avatarStyle(member, index)}>{avatarText(member)}</span><div><strong>{displayMemberName(member)}</strong><p>{member.role === "owner" ? "オーナー" : member.role === "editor" ? "編集メンバー" : "閲覧のみ"}</p></div><div className="member-profile-actions">{isOwner && member.role !== "owner" ? <select aria-label={`${displayMemberName(member)}の権限`} value={member.role} onChange={(event) => onUpdateMemberRole(member, event.target.value as "editor" | "viewer")}><option value="editor">編集できる</option><option value="viewer">閲覧のみ</option></select> : <span className={`tag ${member.role === "owner" ? "owner-tag" : ""}`}>{member.role}</span>}{canEditProfile ? <button className="secondary" onClick={() => onUpdateMemberProfile(member, { trip_nickname: window.prompt("旅行内の表示名", displayMemberName(member)) || displayMemberName(member) })}>{member.user_id === currentUserId ? "自分を編集" : "表示名を編集"}</button> : null}{isOwner && member.role !== "owner" && member.user_id !== currentUserId ? <button className="tiny danger" onClick={() => onRemoveMember(member)}>削除</button> : null}</div></article>; })}</div></div></section>;
 }
 
 function SettingsPage({ snapshot, currentUserId, onCopyInvite, onOpenPrint, onUpdateMemberProfile }: { snapshot: TripSnapshot; currentUserId: string; onCopyInvite: () => void; onOpenPrint: () => void; onUpdateMemberProfile: (member: TripMember, patch: Partial<TripMember>) => void }) {

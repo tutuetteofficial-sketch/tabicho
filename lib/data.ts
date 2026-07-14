@@ -70,7 +70,7 @@ export async function getTripSnapshot(tripId = demoTripSnapshot.trip.id): Promis
     packingTemplates: packingTemplates.data || demoTripSnapshot.packingTemplates,
     packing: packing.data || [],
     todos: todos.data || [],
-    emergency: emergency.data || demoTripSnapshot.emergency,
+    emergency: emergency.data || { id: `emergency-${tripId}`, trip_id: tripId },
     foodLogs: foodLogs.data || [],
     photos: photos.data || [],
     reflections: reflections.data || demoTripSnapshot.reflections,

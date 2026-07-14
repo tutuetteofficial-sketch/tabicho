@@ -1,7 +1,5 @@
-import { TripShell } from "@/components/trip-shell";
-import { getTripSnapshot } from "@/lib/data";
+import { TripHome } from "@/components/trip-home";
 
-export default async function Home() {
-  const snapshot = await getTripSnapshot();
-  return <TripShell initialSnapshot={snapshot} />;
+export default function Home() {
+  return <TripHome />;
 }

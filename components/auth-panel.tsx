@@ -10,6 +10,8 @@ type AuthPanelProps = {
   tripId: string;
   inviteCode?: string | null;
   onMemberJoined: (member: TripMember) => void;
+  onAuthUserChanged: (userId: string | null) => void;
+  autoJoin?: boolean;
 };
 
 function currentPathWithQuery() {
@@ -24,7 +26,7 @@ function callbackUrl() {
   return url.toString();
 }
 
-export function AuthPanel({ onToast, tripId, inviteCode, onMemberJoined }: AuthPanelProps) {
+export function AuthPanel({ onToast, tripId, inviteCode, onMemberJoined, onAuthUserChanged, autoJoin = true }: AuthPanelProps) {
   const supabase = useMemo(() => createBrowserSupabaseClient(), []);
   const joinedUserRef = useRef("");
   const [email, setEmail] = useState("");
@@ -36,59 +38,68 @@ export function AuthPanel({ onToast, tripId, inviteCode, onMemberJoined }: AuthP
   useEffect(() => {
     if (!supabase) {
       setLoading(false);
+      onAuthUserChanged(null);
       return;
     }
 
     supabase.auth.getUser().then(({ data }) => {
       setUser(data.user ?? null);
+      onAuthUserChanged(data.user?.id ?? null);
       setLoading(false);
     });
 
     const { data: subscription } = supabase.auth.onAuthStateChange((_, session) => {
       setUser(session?.user ?? null);
+      onAuthUserChanged(session?.user.id ?? null);
       setLoading(false);
     });
 
     return () => subscription.subscription.unsubscribe();
-  }, [supabase]);
+  }, [onAuthUserChanged, supabase]);
 
   useEffect(() => {
-    if (!supabase || !user || !inviteCode || joinedUserRef.current === user.id) return;
+    if (!autoJoin || !supabase || !user || !inviteCode || joinedUserRef.current === user.id) return;
     const client = supabase;
     const userId = user.id;
 
     async function joinTrip() {
-      setJoining(true);
-      const { data } = await client.auth.getSession();
-      const accessToken = data.session?.access_token;
-      if (!accessToken) {
-        setJoining(false);
-        return;
-      }
-
-      const response = await fetch("/api/trips/join", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          authorization: `Bearer ${accessToken}`
-        },
-        body: JSON.stringify({ trip_id: tripId, invite_code: inviteCode })
-      });
-      const result = await response.json();
-      setJoining(false);
-
-      if (!response.ok || !result.ok) {
-        onToast(result.error || "Could not join this trip.");
-        return;
-      }
-
       joinedUserRef.current = userId;
-      onMemberJoined(result.data as TripMember);
-      onToast("Joined this trip.");
+      setJoining(true);
+
+      try {
+        const { data } = await client.auth.getSession();
+        const accessToken = data.session?.access_token;
+        if (!accessToken) {
+          onToast("Login session could not be read.");
+          return;
+        }
+
+        const response = await fetch("/api/trips/join", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            authorization: `Bearer ${accessToken}`
+          },
+          body: JSON.stringify({ trip_id: tripId, invite_code: inviteCode })
+        });
+        const result = await response.json();
+
+        if (!response.ok || !result.ok) {
+          onToast(result.error || "Could not join this trip.");
+          return;
+        }
+
+        onMemberJoined(result.data as TripMember);
+        onToast("Joined this trip.");
+      } catch {
+        onToast("Could not connect to the trip service.");
+      } finally {
+        setJoining(false);
+      }
     }
 
     joinTrip();
-  }, [inviteCode, onMemberJoined, onToast, supabase, tripId, user]);
+  }, [autoJoin, inviteCode, onMemberJoined, onToast, supabase, tripId, user]);
 
   async function signInWithEmail() {
     if (!supabase) {
@@ -119,7 +130,10 @@ export function AuthPanel({ onToast, tripId, inviteCode, onMemberJoined }: AuthP
 
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo: callbackUrl() }
+      options: {
+        redirectTo: callbackUrl(),
+        queryParams: { prompt: "select_account" }
+      }
     });
 
     if (error) onToast(error.message);
